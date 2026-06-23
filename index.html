@@ -418,11 +418,17 @@ const ACCOUNTS = [
   {key:'isa',     name:'ISA',          short:'ISA',  color:'#15B886'},
   {key:'pension', name:'연금저축',       short:'연금', color:'#8C6FF0'},
 ];
-function acctOf(key){ return ACCOUNTS.find(a=>a.key===key) || ACCOUNTS[0]; }
+// 기본 계좌 + 사용자가 수기 추가한 계좌
+function customAccountsList(){ return (state && state.customAccounts) || []; }
+function allAccounts(){ return ACCOUNTS.concat(customAccountsList()); }
+function acctOf(key){ return allAccounts().find(a=>a.key===key) || ACCOUNTS[0]; }
+// 계좌 선택 옵션 / 새 계좌 색
+function acctOptions(selectedKey){ return allAccounts().map(a=>`<option value="${a.key}" ${a.key===selectedKey?'selected':''}>${esc(a.name)}</option>`).join(''); }
+function defaultNewAcctColor(){ const used=new Set(allAccounts().map(a=>a.color)); return PALETTE.find(c=>!used.has(c)) || PALETTE[0]; }
 
 /* ---------- 상태 ---------- */
 function defaultState(){
-  return { transactions:[], assets:[], theme:'auto', appName:'자산관리', customCats:{income:[],expense:[]}, market:{ kospi:null, fx:null, ts:null, kospiManual:null } };
+  return { transactions:[], assets:[], theme:'auto', appName:'자산관리', customCats:{income:[],expense:[]}, customAccounts:[], market:{ kospi:null, fx:null, ts:null, kospiManual:null } };
 }
 let state = defaultState();                 // 로그인 전 placeholder
 function load(){
@@ -719,7 +725,7 @@ function prevSnap(acctKey){
 function totalSeries(){
   const months = assetMonths();
   return months.map(ym=>{
-    let tot=0; ACCOUNTS.forEach(a=>{ const s=snapAt(a.key,ym); if(s) tot+=s.value; });
+    let tot=0; allAccounts().forEach(a=>{ const s=snapAt(a.key,ym); if(s) tot+=s.value; });
     return {ym, label: ym.slice(2,4)+'.'+ym.slice(5,7), value:tot};
   });
 }
@@ -734,7 +740,7 @@ function renderAssets(){
 
   // 원금/평가손익 합계
   let sumPrincipal=0, sumValue=0;
-  ACCOUNTS.forEach(a=>{ const s=latestSnap(a.key); if(s){ sumValue+=s.value; sumPrincipal+= (s.principal||0); } });
+  allAccounts().forEach(a=>{ const s=latestSnap(a.key); if(s){ sumValue+=s.value; sumPrincipal+= (s.principal||0); } });
   const totalPL = sumValue - sumPrincipal;
   const totalPLpct = sumPrincipal? totalPL/sumPrincipal*100 : null;
 
@@ -742,7 +748,7 @@ function renderAssets(){
   const changeData = series.slice(1).map((s,i)=>({label:s.label, value: s.value - series[i].value}));
 
   // 계좌 카드
-  const acctCards = ACCOUNTS.map(a=>{
+  const acctCards = allAccounts().map(a=>{
     const s = latestSnap(a.key);
     if(!s) return `<div class="acct">
       <div class="top"><span class="badge" style="background:${a.color}1f;color:${a.color}">${a.short}</span><span class="nm">${a.name}</span></div>
@@ -787,7 +793,7 @@ function renderAssets(){
         : `<div class="muted" style="font-size:12px">전월 데이터가 쌓이면 증감이 표시돼요</div>`}
       <div class="grid c2" style="margin-top:16px">
         <div class="stat" style="text-align:left"><div class="label">평가손익(누적)</div><div class="big num" style="color:${totalPL>=0?'var(--up)':'var(--down)'};font-size:20px">${fmtSigned(totalPL)}</div><div class="sub">${totalPLpct!=null?fmtPct(totalPLpct)+' · 원금 '+won(sumPrincipal)+'원':'원금 미입력'}</div></div>
-        <div class="stat" style="text-align:left"><div class="label">누적 납입원금</div><div class="big num" style="font-size:20px">${won(sumPrincipal)}원</div><div class="sub">3개 계좌 합계</div></div>
+        <div class="stat" style="text-align:left"><div class="label">누적 납입원금</div><div class="big num" style="font-size:20px">${won(sumPrincipal)}원</div><div class="sub">${allAccounts().length}개 계좌 합계</div></div>
       </div>
     </div>
 
@@ -1001,13 +1007,25 @@ function renderNcExisting(){
 }
 
 function openAssetModal(){
-  modalState = {};
-  const opts = ACCOUNTS.map(a=>`<option value="${a.key}">${a.name}</option>`).join('');
+  modalState = { newAcctColor:null };
   openModal(`
     <div class="grip"></div>
     <h3>자산 스냅샷 입력</h3>
     <div class="tip">각 계좌의 <b>월말 평가액</b>과 <b>납입원금</b>을 기록하면 총자산·월별 증감·수익률이 자동 계산돼요. 같은 계좌·같은 달을 다시 입력하면 덮어써요.</div>
-    <div class="field"><label>계좌</label><select class="input" id="a-acct">${opts}</select></div>
+    <div class="field"><label>계좌</label>
+      <select class="input" id="a-acct">${acctOptions()}</select>
+      <button type="button" class="btn ghost sm" data-action="add-acct-toggle" style="margin-top:8px; padding:8px 10px;">＋ 새 계좌 추가</button>
+      <div class="newcat" id="newacct-panel" hidden>
+        <div class="newcat-title">새 계좌 만들기</div>
+        <input class="input" id="na-name" placeholder="계좌 이름 (예: 해외주식, 청약통장)" maxlength="20" autocomplete="off">
+        <div class="swatches" id="na-swatches" style="margin-top:12px"></div>
+        <div class="newcat-actions">
+          <button type="button" class="btn sec sm" data-action="add-acct-cancel">취소</button>
+          <button type="button" class="btn sm" data-action="add-acct-save">추가하기</button>
+        </div>
+        <div class="nc-existing" id="na-existing"></div>
+      </div>
+    </div>
     <div class="field"><label>기준 월</label><input class="input" type="month" id="a-ym" value="${viewYM}"></div>
     <div class="field"><label>평가액 (현재 잔고)</label>
       <input class="input amount num" id="a-value" inputmode="numeric" placeholder="0" autocomplete="off"><span style="position:relative;float:right;margin-top:-36px;margin-right:14px;color:var(--txt-weak);font-weight:700">원</span></div>
@@ -1017,6 +1035,21 @@ function openAssetModal(){
   `);
   setTimeout(()=>{ const el=document.getElementById('a-value'); el && el.focus(); },60);
   attachAmountFormat();
+}
+// 새 계좌 패널 보조 렌더
+function renderAcctSwatches(){
+  const el=document.getElementById('na-swatches'); if(!el) return;
+  el.innerHTML = PALETTE.map(c=>`<button type="button" class="sw-pick" data-action="add-acct-color" data-color="${c}" aria-pressed="${c===modalState.newAcctColor}" style="background:${c}" aria-label="색상"></button>`).join('');
+}
+function renderNaExisting(){
+  const el=document.getElementById('na-existing'); if(!el) return;
+  const customs=customAccountsList();
+  if(!customs.length){ el.innerHTML=''; return; }
+  const usedKeys=new Set(state.assets.map(a=>a.account));
+  el.innerHTML='<div class="nc-existing-title">내가 추가한 계좌</div>'+customs.map(a=>{
+    const inUse=usedKeys.has(a.key);
+    return `<span class="nc-chip"><span class="e2" style="background:${a.color}1f;color:${a.color}">🏦</span>${esc(a.name)}${inUse?'':`<button type="button" class="nc-del" data-action="del-acct" data-key="${a.key}" title="삭제">✕</button>`}</span>`;
+  }).join('');
 }
 
 function openRenameModal(){
@@ -1059,9 +1092,10 @@ function esc(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;',
 // 되돌리기용 직전 상태 백업 (예시 데이터·초기화 직전)
 function backupForUndo(){
   state._undo = {
-    transactions: JSON.parse(JSON.stringify(state.transactions)),
-    assets:       JSON.parse(JSON.stringify(state.assets)),
-    customCats:   JSON.parse(JSON.stringify(state.customCats || {income:[],expense:[]})),
+    transactions:   JSON.parse(JSON.stringify(state.transactions)),
+    assets:         JSON.parse(JSON.stringify(state.assets)),
+    customCats:     JSON.parse(JSON.stringify(state.customCats || {income:[],expense:[]})),
+    customAccounts: JSON.parse(JSON.stringify(state.customAccounts || [])),
   };
 }
 function seedLedger(){
@@ -1179,7 +1213,8 @@ function renderChangePin(){
 function buildBackup(){
   return { app:'MoneyBoard', v:1, user: currentUser? currentUser.id:null, exportedAt: Date.now(),
     transactions: state.transactions, assets: state.assets,
-    customCats: state.customCats || {income:[],expense:[]}, appName: state.appName };
+    customCats: state.customCats || {income:[],expense:[]},
+    customAccounts: state.customAccounts || [], appName: state.appName };
 }
 // UTF-8 안전 base64 (한글 포함)
 function b64encodeUtf8(str){ const b=new TextEncoder().encode(str); let s=''; b.forEach(x=>s+=String.fromCharCode(x)); return btoa(s); }
@@ -1203,6 +1238,10 @@ function mergeBackup(obj){
     const keys = new Set(state.customCats[type].map(c=>c.key));
     (((obj.customCats||{})[type])||[]).forEach(c=>{ if(c && c.key && !keys.has(c.key)){ state.customCats[type].push(c); keys.add(c.key); } });
   });
+  // 사용자 추가 계좌 병합 (key 기준)
+  if(!state.customAccounts) state.customAccounts = [];
+  const acctKeys = new Set(state.customAccounts.map(a=>a.key));
+  (obj.customAccounts||[]).forEach(a=>{ if(a && a.key && !acctKeys.has(a.key)){ state.customAccounts.push(a); acctKeys.add(a.key); } });
   return {addTx, addAs};
 }
 function openExportModal(){
@@ -1363,6 +1402,7 @@ document.addEventListener('click', e=>{
         state.transactions = state._undo.transactions;
         state.assets = state._undo.assets;
         state.customCats = state._undo.customCats;
+        if(state._undo.customAccounts) state.customAccounts = state._undo.customAccounts;
         delete state._undo; save(); closeModal(); render();
         toast('직전 상태로 되돌렸어요');
       } else { toast('되돌릴 작업이 없어요'); }
@@ -1371,7 +1411,7 @@ document.addEventListener('click', e=>{
     case 'reset-all': {
       if(confirm('모든 가계부·자산 데이터를 삭제할까요?\n(서비스 이름·비밀번호는 유지되고, 삭제 직후 설정에서 한 번 되돌릴 수 있어요)')){
         backupForUndo();
-        state.transactions = []; state.assets = []; state.customCats = {income:[],expense:[]};
+        state.transactions = []; state.assets = []; state.customCats = {income:[],expense:[]}; state.customAccounts = [];
         save(); closeModal(); render();
         toast('전체 데이터를 초기화했어요');
       }
@@ -1426,6 +1466,40 @@ document.addEventListener('click', e=>{
       document.getElementById('cat-grid').innerHTML = catGridHTML(type, modalState.cat);
       renderNcExisting();
       toast('카테고리를 삭제했어요');
+      break;
+    }
+    case 'add-acct-toggle': {
+      const panel=document.getElementById('newacct-panel');
+      modalState.newAcctColor=defaultNewAcctColor();
+      panel.hidden=false; renderAcctSwatches(); renderNaExisting();
+      const nm=document.getElementById('na-name'); if(nm) nm.focus();
+      panel.scrollIntoView({behavior:'smooth', block:'nearest'});
+      break;
+    }
+    case 'add-acct-cancel': { document.getElementById('newacct-panel').hidden=true; break; }
+    case 'add-acct-color': { modalState.newAcctColor=el.dataset.color; renderAcctSwatches(); break; }
+    case 'add-acct-save': {
+      const name=((document.getElementById('na-name')||{}).value||'').trim();
+      if(!name){ toast('계좌 이름을 입력해 주세요'); break; }
+      if(allAccounts().some(a=>a.name===name)){ toast('이미 같은 이름의 계좌가 있어요'); break; }
+      if(!state.customAccounts) state.customAccounts=[];
+      const key='acct_'+Date.now().toString(36);
+      const short = name.length<=4 ? name : name.slice(0,3);
+      state.customAccounts.push({key, name, short, color: modalState.newAcctColor || PALETTE[0]});
+      save();
+      const sel=document.getElementById('a-acct'); if(sel) sel.innerHTML=acctOptions(key);
+      document.getElementById('newacct-panel').hidden=true;
+      toast('“'+name+'” 계좌를 추가했어요');
+      break;
+    }
+    case 'del-acct': {
+      const k=el.dataset.key;
+      state.customAccounts=(state.customAccounts||[]).filter(a=>a.key!==k);
+      save();
+      const sel=document.getElementById('a-acct');
+      if(sel){ const keep = allAccounts().some(a=>a.key===sel.value) ? sel.value : ACCOUNTS[0].key; sel.innerHTML=acctOptions(keep); }
+      renderNaExisting();
+      toast('계좌를 삭제했어요');
       break;
     }
     case 'save-name': {
@@ -1487,6 +1561,11 @@ document.addEventListener('keydown', e=>{
     // 새 카테고리 패널이 열려 있고 그 안에서 입력 중이면 → 카테고리 추가
     if(panel && !panel.hidden && panel.contains(e.target)){
       e.preventDefault(); const b=document.querySelector('[data-action="add-cat-save"]'); b && b.click(); return;
+    }
+    const apanel = document.getElementById('newacct-panel');
+    // 새 계좌 패널이 열려 있고 그 안에서 입력 중이면 → 계좌 추가
+    if(apanel && !apanel.hidden && apanel.contains(e.target)){
+      e.preventDefault(); const b=document.querySelector('[data-action="add-acct-save"]'); b && b.click(); return;
     }
     const saveBtn = document.querySelector('.sheet [data-action="verify-core"]') || document.querySelector('.sheet [data-action^="save-"]');
     if(saveBtn){ e.preventDefault(); saveBtn.click(); }
