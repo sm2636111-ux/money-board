@@ -360,7 +360,11 @@ const USERS = [
 ];
 let currentUser = null;                  // 현재 로그인된 사용자
 const LEGACY_KEY = 'assetmgr.v1';        // 기존 단일 사용자 데이터 (1회 이전용)
+const CORE_KEY = '921207';               // 비밀번호 변경용 핵심키 (마스터 키)
 function storageKey(){ return 'assetmgr.v1.' + (currentUser ? currentUser.id : 'guest'); }
+// 변경된 비밀번호 적용/저장 (기기 전역, 로그인 전부터 필요)
+function applyPins(){ try{ const p=JSON.parse(localStorage.getItem('assetmgr.pins'))||{}; USERS.forEach(u=>{ if(p[u.id]) u.pin=p[u.id]; }); }catch(e){} }
+function savePins(){ const p={}; USERS.forEach(u=>p[u.id]=u.pin); try{ localStorage.setItem('assetmgr.pins', JSON.stringify(p)); }catch(e){} }
 
 /* ---------- 카테고리 정의 ---------- */
 const PALETTE = ['#3182F6','#F04452','#FFB020','#15B886','#8C6FF0','#FF8A3D','#00A5BF','#E85DA0','#5B7CFA','#34C759','#A0703D','#8FA0AE'];
@@ -1111,6 +1115,11 @@ function openSettingsModal(){
       <div class="tip" style="margin-top:8px">로그아웃하면 잠금화면으로 돌아가요. 다른 비밀번호로 로그인하면 그 사용자의 데이터가 보여요. (데이터는 사용자별로 따로 저장돼요)</div>
     </div>
     <div class="set-sec">
+      <div class="set-label">🔑 비밀번호 변경</div>
+      <button class="btn sec block sm" data-action="open-change-pin">로그인 비밀번호 변경</button>
+      <div class="tip" style="margin-top:8px">비밀번호를 바꾸려면 본인 확인용 <b>핵심키</b>가 필요해요. (이 기기에 저장돼요)</div>
+    </div>
+    <div class="set-sec">
       <div class="set-label">📦 기기 간 옮기기 (백업/복원)</div>
       <div class="set-row">
         <button class="btn sm" data-action="open-export">내보내기</button>
@@ -1139,6 +1148,31 @@ function openSettingsModal(){
       <div class="tip" style="margin-top:8px">모든 가계부·자산 기록을 삭제해요. 서비스 이름·비밀번호는 그대로 유지되고, 삭제 직후 위 <b>되돌리기</b>로 한 번 복구할 수 있어요.</div>
     </div>
   `);
+}
+
+/* ---------- 비밀번호 변경 (핵심키 필요) ---------- */
+function openChangePinModal(){ modalState = { coreOK:false }; renderChangePin(); }
+function renderChangePin(){
+  const users = USERS.map(u=>`<option value="${u.id}" ${currentUser&&currentUser.id===u.id?'selected':''}>${esc(u.name)}</option>`).join('');
+  openModal(`
+    <div class="grip"></div>
+    <h3>비밀번호 변경</h3>
+    ${ !modalState.coreOK ? `
+      <div class="tip">비밀번호 변경은 본인 확인을 위해 <b>핵심키</b>가 필요해요. 핵심키 6자리를 입력하세요.</div>
+      <div class="field"><label>핵심키</label>
+        <input class="input" id="core-key" type="password" inputmode="numeric" maxlength="6" placeholder="핵심키 6자리" autocomplete="off"></div>
+      <button class="btn block" data-action="verify-core">확인</button>
+    ` : `
+      <div class="tip" style="color:var(--down)">✓ 핵심키 확인됨. 변경할 사용자와 새 비밀번호(숫자 4자리)를 입력하세요.</div>
+      <div class="field"><label>사용자</label><select class="input" id="cp-user">${users}</select></div>
+      <div class="field"><label>새 비밀번호 (숫자 4자리)</label>
+        <input class="input" id="cp-new" type="password" inputmode="numeric" maxlength="4" placeholder="● ● ● ●" autocomplete="off"></div>
+      <div class="field"><label>새 비밀번호 확인</label>
+        <input class="input" id="cp-new2" type="password" inputmode="numeric" maxlength="4" placeholder="● ● ● ●" autocomplete="off"></div>
+      <button class="btn block" data-action="save-pin">비밀번호 변경</button>
+    ` }
+  `);
+  setTimeout(()=>{ const el=document.getElementById(modalState.coreOK?'cp-new':'core-key'); if(el) el.focus(); },60);
 }
 
 /* ---------- 기기 간 옮기기 (백업/복원) ---------- */
@@ -1273,6 +1307,27 @@ document.addEventListener('click', e=>{
     case 'logout': { try{ sessionStorage.removeItem('assetmgr.user'); }catch(e){} location.reload(); break; }
     case 'open-export': openExportModal(); break;
     case 'open-import': openImportModal(); break;
+    case 'open-change-pin': openChangePinModal(); break;
+    case 'verify-core': {
+      const v=((document.getElementById('core-key')||{}).value||'').trim();
+      if(v===CORE_KEY){ modalState.coreOK=true; renderChangePin(); toast('핵심키 확인됨'); }
+      else { toast('핵심키가 올바르지 않아요'); }
+      break;
+    }
+    case 'save-pin': {
+      const uid=document.getElementById('cp-user').value;
+      const p1=((document.getElementById('cp-new')||{}).value||'').trim();
+      const p2=((document.getElementById('cp-new2')||{}).value||'').trim();
+      if(!/^\d{4}$/.test(p1)){ toast('숫자 4자리로 입력해 주세요'); break; }
+      if(p1!==p2){ toast('두 비밀번호가 일치하지 않아요'); break; }
+      const other=USERS.find(u=>u.id!==uid);
+      if(other && other.pin===p1){ toast('다른 사용자와 같은 비밀번호는 쓸 수 없어요'); break; }
+      const target=USERS.find(u=>u.id===uid);
+      target.pin=p1; savePins();
+      closeModal();
+      toast(target.name+' 비밀번호를 변경했어요');
+      break;
+    }
     case 'copy-export': {
       const t=document.getElementById('exp-code'); if(!t) break; t.select();
       const done=()=>toast('코드를 복사했어요');
@@ -1433,7 +1488,7 @@ document.addEventListener('keydown', e=>{
     if(panel && !panel.hidden && panel.contains(e.target)){
       e.preventDefault(); const b=document.querySelector('[data-action="add-cat-save"]'); b && b.click(); return;
     }
-    const saveBtn = document.querySelector('.sheet [data-action^="save-"]');
+    const saveBtn = document.querySelector('.sheet [data-action="verify-core"]') || document.querySelector('.sheet [data-action^="save-"]');
     if(saveBtn){ e.preventDefault(); saveBtn.click(); }
   }
   if(e.key==='Escape') closeModal();
@@ -1449,6 +1504,7 @@ function startApp(){
   refreshMarket(true);     // 시장 지표 갱신
 }
 applyTheme();              // 잠금화면용 시스템 테마
+applyPins();               // 저장된(변경된) 비밀번호 반영
 unlockInit();              // 세션 로그인 기록 있으면 자동 로그인 후 앱 시작
 </script>
 </body>
