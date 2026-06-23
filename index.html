@@ -1111,6 +1111,14 @@ function openSettingsModal(){
       <div class="tip" style="margin-top:8px">로그아웃하면 잠금화면으로 돌아가요. 다른 비밀번호로 로그인하면 그 사용자의 데이터가 보여요. (데이터는 사용자별로 따로 저장돼요)</div>
     </div>
     <div class="set-sec">
+      <div class="set-label">📦 기기 간 옮기기 (백업/복원)</div>
+      <div class="set-row">
+        <button class="btn sm" data-action="open-export">내보내기</button>
+        <button class="btn sec sm" data-action="open-import">가져오기</button>
+      </div>
+      <div class="tip" style="margin-top:8px">노트북에서 <b>내보내기</b> → 코드 복사(또는 파일 저장) → 휴대폰에서 <b>가져오기</b>에 붙여넣으면 데이터가 <b>합쳐져요</b>(기존 건 유지). 데이터가 외부로 안 나가 안전해요.</div>
+    </div>
+    <div class="set-sec">
       <div class="set-label">🎬 예시 데이터</div>
       <div class="set-row">
         <button class="btn sec sm" data-action="seed-ledger">가계부 예시 넣기</button>
@@ -1131,6 +1139,72 @@ function openSettingsModal(){
       <div class="tip" style="margin-top:8px">모든 가계부·자산 기록을 삭제해요. 서비스 이름·비밀번호는 그대로 유지되고, 삭제 직후 위 <b>되돌리기</b>로 한 번 복구할 수 있어요.</div>
     </div>
   `);
+}
+
+/* ---------- 기기 간 옮기기 (백업/복원) ---------- */
+function buildBackup(){
+  return { app:'MoneyBoard', v:1, user: currentUser? currentUser.id:null, exportedAt: Date.now(),
+    transactions: state.transactions, assets: state.assets,
+    customCats: state.customCats || {income:[],expense:[]}, appName: state.appName };
+}
+// UTF-8 안전 base64 (한글 포함)
+function b64encodeUtf8(str){ const b=new TextEncoder().encode(str); let s=''; b.forEach(x=>s+=String.fromCharCode(x)); return btoa(s); }
+function b64decodeUtf8(b64){ const bin=atob(b64); const arr=Uint8Array.from(bin, c=>c.charCodeAt(0)); return new TextDecoder().decode(arr); }
+function encodeBackup(obj){ return 'MB1:' + b64encodeUtf8(JSON.stringify(obj)); }
+function decodeBackup(text){
+  text = (text||'').trim();
+  const json = text.startsWith('MB1:') ? b64decodeUtf8(text.slice(4)) : text;
+  return JSON.parse(json);
+}
+// 현재 데이터에 가져온 데이터를 병합 (id 기준, 기존 유지 + 새 항목만 추가)
+function mergeBackup(obj){
+  let addTx=0, addAs=0;
+  const txIds = new Set(state.transactions.map(t=>t.id));
+  (obj.transactions||[]).forEach(t=>{ if(t && t.id && !txIds.has(t.id)){ state.transactions.push(t); txIds.add(t.id); addTx++; } });
+  const asIds = new Set(state.assets.map(a=>a.id));
+  (obj.assets||[]).forEach(a=>{ if(a && a.id && !asIds.has(a.id)){ state.assets.push(a); asIds.add(a.id); addAs++; } });
+  if(!state.customCats) state.customCats = {income:[],expense:[]};
+  ['income','expense'].forEach(type=>{
+    if(!state.customCats[type]) state.customCats[type]=[];
+    const keys = new Set(state.customCats[type].map(c=>c.key));
+    (((obj.customCats||{})[type])||[]).forEach(c=>{ if(c && c.key && !keys.has(c.key)){ state.customCats[type].push(c); keys.add(c.key); } });
+  });
+  return {addTx, addAs};
+}
+function openExportModal(){
+  const code = encodeBackup(buildBackup());
+  openModal(`
+    <div class="grip"></div>
+    <h3>데이터 내보내기</h3>
+    <div class="tip">아래 코드를 <b>복사</b>해서 카톡·메모 등으로 다른 기기에 옮긴 뒤, 그 기기의 <b>가져오기</b>에 붙여넣으세요. 또는 <b>파일로 저장</b>해 옮겨도 돼요.</div>
+    <textarea class="input" id="exp-code" readonly rows="5" style="font-family:monospace; font-size:12px; resize:vertical; line-height:1.4;">${esc(code)}</textarea>
+    <div class="set-row" style="margin-top:12px">
+      <button class="btn" data-action="copy-export">📋 코드 복사</button>
+      <button class="btn sec" data-action="download-export">💾 파일로 저장</button>
+    </div>
+  `);
+  setTimeout(()=>{ const t=document.getElementById('exp-code'); if(t){ t.focus(); t.select(); } },60);
+}
+function openImportModal(){
+  openModal(`
+    <div class="grip"></div>
+    <h3>데이터 가져오기</h3>
+    <div class="tip">다른 기기에서 <b>내보내기</b>한 코드를 붙여넣거나 백업 파일을 선택하세요. 현재 데이터는 유지되고 <b>새 항목만 합쳐져요</b>.</div>
+    <textarea class="input" id="imp-code" rows="5" placeholder="여기에 코드 붙여넣기 (MB1: 로 시작)" style="font-family:monospace; font-size:12px; resize:vertical; line-height:1.4;"></textarea>
+    <div class="set-row" style="margin-top:12px">
+      <button class="btn" data-action="do-import">가져오기 (병합)</button>
+      <label class="btn sec" style="cursor:pointer; display:inline-flex; align-items:center; justify-content:center;">📁 파일에서<input type="file" id="imp-file" accept=".json,.txt,application/json" style="display:none"></label>
+    </div>
+  `);
+  setTimeout(()=>{
+    const f=document.getElementById('imp-file');
+    if(f) f.addEventListener('change', e=>{
+      const file=e.target.files[0]; if(!file) return;
+      const r=new FileReader();
+      r.onload=()=>{ const ta=document.getElementById('imp-code'); if(ta){ ta.value=r.result; } toast('파일을 읽었어요 · 가져오기를 눌러주세요'); };
+      r.readAsText(file);
+    });
+  },60);
 }
 
 /* ---------- 비밀번호(PIN) 잠금 ---------- */
@@ -1197,6 +1271,35 @@ document.addEventListener('click', e=>{
     case 'open-rename': openRenameModal(); break;
     case 'open-settings': openSettingsModal(); break;
     case 'logout': { try{ sessionStorage.removeItem('assetmgr.user'); }catch(e){} location.reload(); break; }
+    case 'open-export': openExportModal(); break;
+    case 'open-import': openImportModal(); break;
+    case 'copy-export': {
+      const t=document.getElementById('exp-code'); if(!t) break; t.select();
+      const done=()=>toast('코드를 복사했어요');
+      if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(t.value).then(done).catch(()=>{ try{document.execCommand('copy'); done();}catch(e){ toast('직접 길게 눌러 복사해 주세요'); } }); }
+      else { try{ document.execCommand('copy'); done(); }catch(e){ toast('직접 길게 눌러 복사해 주세요'); } }
+      break;
+    }
+    case 'download-export': {
+      try{
+        const blob=new Blob([JSON.stringify(buildBackup(),null,2)],{type:'application/json'});
+        const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+        a.download='moneyboard-'+(currentUser?currentUser.id:'data')+'.json'; document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(()=>URL.revokeObjectURL(a.href),1500); toast('백업 파일을 저장했어요');
+      }catch(e){ toast('파일 저장에 실패했어요'); }
+      break;
+    }
+    case 'do-import': {
+      const raw=(document.getElementById('imp-code')||{}).value || '';
+      if(!raw.trim()){ toast('코드를 붙여넣거나 파일을 선택해 주세요'); break; }
+      let obj; try{ obj=decodeBackup(raw); }catch(e){ toast('코드 형식이 올바르지 않아요'); break; }
+      if(!obj || (!Array.isArray(obj.transactions) && !Array.isArray(obj.assets))){ toast('가져올 데이터를 찾지 못했어요'); break; }
+      backupForUndo();
+      const r=mergeBackup(obj);
+      save(); closeModal(); render();
+      toast(`가져오기 완료 · 거래 +${r.addTx}, 자산 +${r.addAs}`);
+      break;
+    }
     case 'modal-close': closeModal(); break;
     case 'pin': pinPress(el.dataset.d); break;
     case 'pin-del': pinDel(); break;
