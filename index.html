@@ -86,8 +86,8 @@ header.app{
 /* 탭 (세그먼트) */
 .tabs{display:flex; gap:6px; padding:8px 0 12px;}
 .tab{
-  flex:1; padding:11px 12px; border-radius:var(--radius-pill); border:none; cursor:pointer;
-  background:transparent; color:var(--txt-weak); font-weight:600; font-size:14px;
+  flex:1; padding:11px 8px; border-radius:var(--radius-pill); border:none; cursor:pointer;
+  background:transparent; color:var(--txt-weak); font-weight:600; font-size:13.5px; white-space:nowrap;
   transition:background .18s ease, color .18s ease;
 }
 .tab[aria-selected="true"]{background:var(--primary); color:#fff;}
@@ -340,12 +340,14 @@ select.input{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://ww
     <div class="app-bar">
       <button class="brand" data-action="open-rename" title="서비스 이름 변경"><span class="dot">₩</span> <span id="app-name">자산관리</span> <span class="edit-pencil">✎</span></button>
       <div class="bar-actions">
+        <button class="icon-btn" id="hide-btn" data-action="toggle-hide" title="금액 가리기">👁</button>
         <button class="icon-btn" data-action="open-settings" title="설정 · 데이터 관리">⚙️</button>
         <button class="icon-btn" data-action="theme" title="테마 전환">🌗</button>
       </div>
     </div>
     <div class="tabs" role="tablist">
-      <button class="tab" role="tab" data-action="tab" data-tab="ledger" aria-selected="true">💰 가계부</button>
+      <button class="tab" role="tab" data-action="tab" data-tab="home" aria-selected="true">🏠 홈</button>
+      <button class="tab" role="tab" data-action="tab" data-tab="ledger" aria-selected="false">💰 가계부</button>
       <button class="tab" role="tab" data-action="tab" data-tab="assets" aria-selected="false">📈 자산 · 투자</button>
     </div>
   </div>
@@ -461,9 +463,11 @@ function migrateLegacy(){
 function uid(){ return Math.random().toString(36).slice(2,10) + (state.transactions.length + state.assets.length); }
 
 /* ---------- 포맷 ---------- */
-const won = n => Math.round(n).toLocaleString('ko-KR');
-const fmtKRW = n => won(n) + '원';
-const fmtSigned = n => (n>0?'+':n<0?'−':'') + won(Math.abs(n)) + '원';
+let hideAmt = false;                 // 금액 가리기 토글
+const MASK = '•••••';
+const won = n => hideAmt ? MASK : Math.round(n).toLocaleString('ko-KR');
+const fmtKRW = n => hideAmt ? MASK+'원' : won(n) + '원';
+const fmtSigned = n => hideAmt ? MASK+'원' : (n>0?'+':n<0?'−':'') + won(Math.abs(n)) + '원';
 const fmtPct = n => (n>0?'+':n<0?'−':'') + Math.abs(n).toFixed(1) + '%';
 const pad2 = n => String(n).padStart(2,'0');
 
@@ -478,7 +482,7 @@ function addMonth(ym, delta){
 function ymLabel(ym){ const [y,m]=ym.split('-'); return y+'년 '+Number(m)+'월'; }
 
 /* ---------- 뷰 상태 ---------- */
-let currentTab = 'ledger';
+let currentTab = 'home';
 let viewYM = todayYM();
 let txFilter = 'all';
 
@@ -577,6 +581,65 @@ function sparkSVG(vals, color){
   const pts = vals.map((v,i)=>[pad+i/(vals.length-1)*(W-pad*2), pad+(1-(v-mn)/sp)*(H-pad*2)]);
   const d = pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
   return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"><path d="${d}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+
+/* =========================================================
+   홈 (요약 대시보드)
+   ========================================================= */
+function renderHome(){
+  const tm = todayYM();
+  const series = totalSeries();
+  const latestTotal = series.length ? series[series.length-1].value : 0;
+  const liab = upcomingCardTotal();
+  const net = latestTotal - liab;
+  const mtx = monthTx(tm);
+  const monthExp = mtx.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
+  const thisCard = cardsOf(tm).reduce((s,c)=>s+c.amount,0);
+  // 자산 구성 비중 (계좌별 최신 평가액)
+  const comp = allAccounts().map(a=>{ const s=latestSnap(a.key); return s&&s.value>0?{label:a.name,color:a.color,value:s.value}:null; }).filter(Boolean).sort((x,y)=>y.value-x.value);
+  const compTotal = comp.reduce((s,d)=>s+d.value,0);
+
+  document.getElementById('view').innerHTML = `
+  <section class="view">
+    <div class="card" style="text-align:center">
+      <div class="label">순자산 · ${ymLabel(tm)}</div>
+      <div class="value num" style="font-size:32px; margin:6px 0 2px">${won(net)}<span style="font-size:16px;color:var(--txt-weak)">원</span></div>
+      <div class="muted" style="font-size:12px">총자산 ${won(latestTotal)}원 ${liab>0?'− 예정 카드값 '+won(liab)+'원':''}</div>
+    </div>
+
+    <div class="grid c2" style="margin-top:14px">
+      <div class="stat"><div class="label">💼 총 자산</div><div class="big num">${won(latestTotal)}<span style="font-size:13px;color:var(--txt-weak)">원</span></div></div>
+      <div class="stat"><div class="label">📊 순자산</div><div class="big num">${won(net)}<span style="font-size:13px;color:var(--txt-weak)">원</span></div></div>
+      <div class="stat"><div class="label">📤 이번 달 지출</div><div class="big num" style="color:var(--up)">${won(monthExp)}<span style="font-size:13px;color:var(--txt-weak)">원</span></div></div>
+      <div class="stat"><div class="label">💳 예정 카드값</div><div class="big num" style="color:var(--up)">${won(liab)}<span style="font-size:13px;color:var(--txt-weak)">원</span></div><div class="sub">이번 달 ${won(thisCard)}원</div></div>
+    </div>
+
+    <div class="card">
+      <div class="sec-title">자산 구성 비중</div>
+      <div class="sec-sub">계좌별 최신 평가액 기준</div>
+      <div class="donut-wrap">
+        <div>${donutSVG(comp,'총 자산', won(compTotal)+'원')}</div>
+        <div class="legend">
+          ${comp.length? comp.map(d=>`<div class="row">
+            <span class="sw" style="background:${d.color}"></span>
+            <span class="ln">${esc(d.label)}</span>
+            <span class="vv num">${won(d.value)}원</span>
+            <span class="pp num">${compTotal? Math.round(d.value/compTotal*100):0}%</span>
+          </div>`).join('') : '<div class="muted" style="font-size:13px">자산 스냅샷을 입력하면 구성 비중이 보여요.</div>'}
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="sec-title" style="margin-bottom:12px">빠른 입력</div>
+      <div class="grid c2" style="gap:10px">
+        <button class="btn down" data-action="open-tx" data-type="income">＋ 수입</button>
+        <button class="btn up" data-action="open-tx" data-type="expense">－ 지출</button>
+        <button class="btn sec" data-action="open-asset">📈 자산 입력</button>
+        <button class="btn sec" data-action="open-card">💳 카드값 입력</button>
+      </div>
+    </div>
+  </section>`;
 }
 
 /* =========================================================
@@ -1223,6 +1286,10 @@ function applyAppName(){
   const el = document.getElementById('app-name'); if(el) el.textContent = n;
   document.title = n + ' · MoneyBoard';
 }
+function applyHideUI(){
+  const b = document.getElementById('hide-btn');
+  if(b){ b.textContent = hideAmt ? '🙈' : '👁'; b.title = hideAmt ? '금액 보기' : '금액 가리기'; }
+}
 
 function attachAmountFormat(){
   document.querySelectorAll('.modal-root input.num').forEach(inp=>{
@@ -1476,7 +1543,9 @@ function unlockInit(){
    ========================================================= */
 function render(){
   document.querySelectorAll('.tab').forEach(t=>t.setAttribute('aria-selected', t.dataset.tab===currentTab));
-  if(currentTab==='ledger') renderLedger(); else renderAssets();
+  if(currentTab==='home') renderHome();
+  else if(currentTab==='ledger') renderLedger();
+  else renderAssets();
 }
 
 function applyTheme(){
@@ -1503,6 +1572,7 @@ document.addEventListener('click', e=>{
     case 'open-asset': openAssetModal(); break;
     case 'open-rename': openRenameModal(); break;
     case 'open-settings': openSettingsModal(); break;
+    case 'toggle-hide': { hideAmt = !hideAmt; state.hideAmounts = hideAmt; save(); applyHideUI(); render(); break; }
     case 'logout': { try{ sessionStorage.removeItem('assetmgr.user'); }catch(e){} location.reload(); break; }
     case 'open-export': openExportModal(); break;
     case 'open-import': openImportModal(); break;
@@ -1868,8 +1938,10 @@ document.addEventListener('pointercancel', ()=>clearTimeout(lpTimer));
 function startApp(){
   migrateLegacy();
   state = load();          // 로그인한 사용자의 데이터 로드
+  hideAmt = !!state.hideAmounts;   // 금액 가리기 상태 복원
   applyTheme();
   applyAppName();
+  applyHideUI();
   render();
   refreshMarket(true);     // 시장 지표 갱신
 }
