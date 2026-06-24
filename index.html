@@ -246,9 +246,12 @@ section.view{animation:fade .22s ease;}
 @media (min-width:620px){ .sheet{bottom:auto; top:50%; left:50%; right:auto; transform:translate(-50%,-50%); width:460px; border-radius:20px; animation:pop .22s ease;} }
 @keyframes rise{from{transform:translateY(100%);} to{transform:none;}}
 @keyframes pop{from{opacity:0; transform:translate(-50%,-46%) scale(.98);} to{opacity:1; transform:translate(-50%,-50%) scale(1);}}
-.grip{width:38px;height:4px;border-radius:999px;background:var(--line);margin:8px auto 4px;}
+.grip{width:38px;height:4px;border-radius:999px;background:var(--line);margin:8px auto 4px; cursor:pointer;}
 @media (min-width:620px){ .grip{display:none;} }
-.sheet h3{font-size:18px; font-weight:700; margin:8px 0 18px;}
+.sheet-close{position:absolute; top:12px; right:14px; width:34px; height:34px; border-radius:50%; border:none;
+  background:var(--bg); color:var(--txt); font-size:15px; cursor:pointer; z-index:3; display:grid; place-items:center; transition:background .15s ease;}
+.sheet-close:hover{background:var(--line); color:var(--txt-strong);}
+.sheet h3{font-size:18px; font-weight:700; margin:8px 0 18px; padding-right:30px;}
 .field{margin-bottom:16px;}
 .field > label{display:block; font-size:12px; color:var(--txt-weak); font-weight:600; margin-bottom:7px;}
 .input, select.input{
@@ -596,7 +599,7 @@ function openSalaryModal(edit){
   const dl = salaryCompanies().map(c=>`<option value="${esc(c)}"></option>`).join('');
   const curYear = todayYM().slice(0,4);
   openModal(`
-    <div class="grip"></div>
+    <div class="grip" data-action="modal-close"></div>
     <h3>${edit?'연봉 수정':'연봉 입력'}</h3>
     <div class="tip">계약연봉 + 상여금 = 그 해의 <b>총연봉</b>으로 정리돼요. 같은 연도를 다시 입력하면 덮어써요.</div>
     <div class="field"><label>연도</label><input class="input" id="s-year" inputmode="numeric" maxlength="4" placeholder="${curYear}" value="${edit?esc(String(edit.year)):curYear}" autocomplete="off"></div>
@@ -647,6 +650,43 @@ function salarySectionHTML(){
 }
 
 /* =========================================================
+   오늘의 운세 (행운 숫자 + 좋은 글귀) — 날짜별 고정
+   ========================================================= */
+const FORTUNE_QUOTES = [
+  "오늘 아낀 한 푼이 내일의 자유가 된다.",
+  "작은 습관이 큰 자산을 만든다.",
+  "기록하는 사람이 결국 모은다.",
+  "어제보다 1%만 나아지면 충분하다.",
+  "조급함은 가장 비싼 지출이다.",
+  "복리는 세상에서 가장 강력한 힘이다.",
+  "느려도 멈추지 않으면 반드시 도착한다.",
+  "지출을 알면 인생이 보인다.",
+  "비교하지 말고 어제의 나와 경쟁하라.",
+  "꾸준함이 재능을 이긴다.",
+  "오늘의 절약이 미래의 선택지를 늘린다.",
+  "천 리 길도 한 걸음부터.",
+  "씨를 뿌리지 않으면 거둘 것도 없다.",
+  "돈을 다스리면 마음이 편안해진다.",
+];
+function fortuneCardHTML(){
+  const [yy,mm,dd] = todayDate().split('-');
+  const seed = parseInt(yy+mm+dd,10) || 0;
+  const lucky = (seed % 45) + 1;
+  const quote = FORTUNE_QUOTES[seed % FORTUNE_QUOTES.length];
+  return `
+    <div class="card">
+      <div class="label">🍀 오늘의 운세 · ${Number(mm)}월 ${Number(dd)}일</div>
+      <div style="display:flex; align-items:center; gap:18px; margin-top:10px">
+        <div style="text-align:center; flex:none">
+          <div class="muted" style="font-size:11px; margin-bottom:4px">행운 숫자</div>
+          <div style="width:56px; height:56px; border-radius:16px; background:var(--primary-weak); color:var(--primary); display:grid; place-items:center; font-size:25px; font-weight:800">${lucky}</div>
+        </div>
+        <div style="flex:1; font-size:14px; color:var(--txt); line-height:1.55">“${quote}”</div>
+      </div>
+    </div>`;
+}
+
+/* =========================================================
    홈 (요약 대시보드)
    ========================================================= */
 function renderHome(){
@@ -664,7 +704,8 @@ function renderHome(){
 
   document.getElementById('view').innerHTML = `
   <section class="view">
-    <div class="card" style="text-align:center">
+    ${fortuneCardHTML()}
+    <div class="card" style="text-align:center; margin-top:14px">
       <div class="label">순자산 · ${ymLabel(tm)}</div>
       <div class="value num" style="font-size:32px; margin:6px 0 2px">${won(net)}<span style="font-size:16px;color:var(--txt-weak)">원</span></div>
       <div class="muted" style="font-size:12px">총자산 ${won(latestTotal)}원 ${liab>0?'− 예정 카드값 '+won(liab)+'원':''}</div>
@@ -896,7 +937,7 @@ function openCardModal(edit){
   modalState = { editCardId: edit?edit.id:null };
   const dl = cardCompanies().map(c=>`<option value="${esc(c)}"></option>`).join('');
   openModal(`
-    <div class="grip"></div>
+    <div class="grip" data-action="modal-close"></div>
     <h3>${edit?'카드값 수정':'카드값 입력'}</h3>
     <div class="tip">카드사별로 그 달에 <b>빠져나갈(결제될) 금액</b>을 기록하세요. 같은 카드사·같은 달을 다시 입력하면 덮어써요.</div>
     <div class="field"><label>카드사</label>
@@ -1225,7 +1266,7 @@ async function refreshMarket(silent){
    모달 (거래 입력 / 자산 입력)
    ========================================================= */
 let modalState = {};
-function openModal(html){ const m=document.getElementById('modal'); m.innerHTML=`<div class="scrim" data-action="modal-close"></div><div class="sheet">${html}</div>`; m.classList.add('on'); }
+function openModal(html){ const m=document.getElementById('modal'); m.innerHTML=`<div class="scrim" data-action="modal-close"></div><div class="sheet"><button class="sheet-close" data-action="modal-close" aria-label="닫기">✕</button>${html}</div>`; m.classList.add('on'); }
 function closeModal(){ const m=document.getElementById('modal'); m.classList.remove('on'); m.innerHTML=''; }
 
 function openTxModal(type, edit){
@@ -1233,7 +1274,7 @@ function openTxModal(type, edit){
   if(edit) type = edit.type;
   modalState = { type, cat: edit ? edit.category : catsFor(type)[0].key, newCatColor: null, editId: edit ? edit.id : null };
   openModal(`
-    <div class="grip"></div>
+    <div class="grip" data-action="modal-close"></div>
     <h3>${edit ? '거래 수정' : '거래 입력'}</h3>
     <div class="seg" id="type-seg">
       <button type="button" class="${type==='income'?'on-inc':''}" data-action="seg-type" data-type="income">📥 수입</button>
@@ -1292,7 +1333,7 @@ function openAssetModal(edit){
   edit = edit || null;
   modalState = { newAcctColor:null, editAssetId: edit ? edit.id : null };
   openModal(`
-    <div class="grip"></div>
+    <div class="grip" data-action="modal-close"></div>
     <h3>${edit ? '자산 스냅샷 수정' : '자산 스냅샷 입력'}</h3>
     <div class="tip">각 계좌의 <b>월말 평가액</b>과 <b>납입원금</b>을 기록하면 총자산·월별 증감·수익률이 자동 계산돼요. 같은 계좌·같은 달을 다시 입력하면 덮어써요.</div>
     <div class="field"><label>계좌</label>
@@ -1338,7 +1379,7 @@ function renderNaExisting(){
 
 function openRenameModal(){
   openModal(`
-    <div class="grip"></div>
+    <div class="grip" data-action="modal-close"></div>
     <h3>서비스 이름 변경</h3>
     <div class="tip">상단에 표시되는 서비스 이름이에요. 비워두면 기본값(자산관리)으로 돌아가요.</div>
     <div class="field"><label>이름</label><input class="input" id="rename-input" value="${esc(state.appName||'자산관리')}" maxlength="20" placeholder="자산관리" autocomplete="off"></div>
@@ -1428,7 +1469,7 @@ function openSettingsModal(){
   const hasUndo = !!state._undo;
   const hasData = state.transactions.length>0 || state.assets.length>0;
   openModal(`
-    <div class="grip"></div>
+    <div class="grip" data-action="modal-close"></div>
     <h3>설정 · 데이터 관리</h3>
     <div class="set-sec">
       <div class="set-label">👤 계정</div>
@@ -1479,7 +1520,7 @@ function openChangePinModal(){ modalState = { coreOK:false }; renderChangePin();
 function renderChangePin(){
   const users = USERS.map(u=>`<option value="${u.id}" ${currentUser&&currentUser.id===u.id?'selected':''}>${esc(u.name)}</option>`).join('');
   openModal(`
-    <div class="grip"></div>
+    <div class="grip" data-action="modal-close"></div>
     <h3>비밀번호 변경</h3>
     ${ !modalState.coreOK ? `
       <div class="tip">비밀번호 변경은 본인 확인을 위해 <b>핵심키</b>가 필요해요. 핵심키 6자리를 입력하세요.</div>
@@ -1543,7 +1584,7 @@ function mergeBackup(obj){
 function openExportModal(){
   const code = encodeBackup(buildBackup());
   openModal(`
-    <div class="grip"></div>
+    <div class="grip" data-action="modal-close"></div>
     <h3>데이터 내보내기</h3>
     <div class="tip">아래 코드를 <b>복사</b>해서 카톡·메모 등으로 다른 기기에 옮긴 뒤, 그 기기의 <b>가져오기</b>에 붙여넣으세요. 또는 <b>파일로 저장</b>해 옮겨도 돼요.</div>
     <textarea class="input" id="exp-code" readonly rows="5" style="font-family:monospace; font-size:12px; resize:vertical; line-height:1.4;">${esc(code)}</textarea>
@@ -1556,7 +1597,7 @@ function openExportModal(){
 }
 function openImportModal(){
   openModal(`
-    <div class="grip"></div>
+    <div class="grip" data-action="modal-close"></div>
     <h3>데이터 가져오기</h3>
     <div class="tip">다른 기기에서 <b>내보내기</b>한 코드를 붙여넣거나 백업 파일을 선택하세요. 현재 데이터는 유지되고 <b>새 항목만 합쳐져요</b>.</div>
     <textarea class="input" id="imp-code" rows="5" placeholder="여기에 코드 붙여넣기 (MB1: 로 시작)" style="font-family:monospace; font-size:12px; resize:vertical; line-height:1.4;"></textarea>
