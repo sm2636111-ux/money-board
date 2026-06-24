@@ -381,7 +381,7 @@ select.input{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://ww
 
 /* ---------- 사용자 정의 (비밀번호로 로그인 구분, 사용자1=마스터) ---------- */
 const DEFAULT_USERS = [
-  { id:'u1', name:'사용자 1', pin:'1115' },
+  { id:'u1', name:'사용자 1', pin:'3326' },
   { id:'u2', name:'사용자 2', pin:'9790' },
 ];
 const MAX_USERS = 10;
@@ -407,6 +407,14 @@ function loadUsers(){
         saveUsers();
       }
       localStorage.setItem('assetmgr.guest_added','1');
+    }
+  }catch(e){}
+  // 마스터 기본 비밀번호 1115 노출 → 3326 으로 1회 교체 (직접 바꾼 경우는 유지)
+  try{
+    if(localStorage.getItem('assetmgr.masterpin_v2')!=='1'){
+      const m = USERS.find(u=>u.id==='u1');
+      if(m && m.pin==='1115' && !USERS.some(u=>u.id!=='u1' && u.pin==='3326')){ m.pin='3326'; saveUsers(); }
+      localStorage.setItem('assetmgr.masterpin_v2','1');
     }
   }catch(e){}
 }
