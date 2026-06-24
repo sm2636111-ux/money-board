@@ -164,6 +164,19 @@ section.view{animation:fade .22s ease;}
 .tx .del{opacity:0; border:none; background:transparent; color:var(--txt-weak); cursor:pointer; font-size:15px; padding:6px; border-radius:8px; transition:.15s;}
 .tx:hover .del{opacity:1;}
 .tx .del:hover{background:var(--up-weak); color:var(--up);}
+.tx[data-action="tx-row"]{cursor:pointer; border-radius:10px; padding-left:6px; padding-right:6px;}
+.tx[data-action="tx-row"]:hover{background:var(--bg);}
+.tx.sel{background:var(--primary-weak);}
+.tx.sel:hover{background:var(--primary-weak);}
+.tx-check{width:22px;height:22px;border-radius:999px;border:2px solid var(--line);flex:none;display:grid;place-items:center;transition:background .15s ease,border-color .15s ease;}
+.tx-check.on{background:var(--primary);border-color:var(--primary);}
+.tx-check.on::after{content:'✓'; color:#fff; font-size:12px; font-weight:800; line-height:1;}
+.select-actionbar{position:fixed; left:0; right:0; bottom:0; z-index:50; max-width:760px; margin:0 auto;
+  background:var(--card); box-shadow:var(--shadow-float); border-top:1px solid var(--line);
+  display:flex; align-items:center; gap:12px; padding:12px 16px; animation:rise .2s ease;}
+.select-actionbar .sel-count{flex:1; text-align:center; font-weight:700; font-size:14px;}
+.select-actionbar .btn{flex:none;}
+.select-actionbar .btn[disabled]{opacity:.45; cursor:default;}
 
 /* 카테고리 분석 바 */
 .catbar{display:flex; align-items:center; gap:12px; padding:9px 2px;}
@@ -571,6 +584,20 @@ function sparkSVG(vals, color){
    ========================================================= */
 function monthTx(ym){ return state.transactions.filter(t=>t.date.slice(0,7)===ym); }
 
+/* ---------- 거래 다중 선택 (꾸욱 눌러 선택) ---------- */
+let selectMode = false;
+let selectedTx = new Set();
+function visibleTxIds(){ return monthTx(viewYM).filter(t=> txFilter==='all' ? true : t.type===txFilter).map(t=>t.id); }
+function enterSelectMode(id){ selectMode=true; selectedTx = new Set(id?[id]:[]); renderLedger(); toast('선택 모드 · 여러 개 골라 한 번에 삭제하세요'); }
+function exitSelectMode(){ selectMode=false; selectedTx.clear(); renderLedger(); }
+function toggleSelect(id){
+  if(selectedTx.has(id)) selectedTx.delete(id); else selectedTx.add(id);
+  const row=document.querySelector(`.tx[data-id="${id}"]`);
+  if(row){ const on=selectedTx.has(id); row.classList.toggle('sel',on); const cb=row.querySelector('.tx-check'); if(cb) cb.classList.toggle('on',on); }
+  const c=document.getElementById('sel-count'); if(c) c.textContent=selectedTx.size+'개 선택됨';
+  const d=document.getElementById('btn-del-sel'); if(d) d.disabled=(selectedTx.size===0);
+}
+
 function renderLedger(){
   const txs = monthTx(viewYM);
   const income = txs.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
@@ -618,11 +645,12 @@ function renderLedger(){
         const c=catOf(t.type,t.category);
         const sign = t.type==='income' ? '+' : '−';
         const col = t.type==='income' ? 'var(--down)' : 'var(--up)';
-        return `<div class="tx">
+        return `<div class="tx ${selectMode&&selectedTx.has(t.id)?'sel':''}" data-action="tx-row" data-id="${t.id}">
+          ${selectMode?`<span class="tx-check ${selectedTx.has(t.id)?'on':''}" aria-hidden="true"></span>`:''}
           <div class="ic" style="background:${c.color}1f;color:${c.color}">${c.icon}</div>
           <div class="meta"><div class="cat">${c.name}</div>${t.memo?`<div class="memo">${esc(t.memo)}</div>`:''}</div>
           <div class="amt num" style="color:${col}">${sign}${won(t.amount)}원</div>
-          <button class="del" data-action="del-tx" data-id="${t.id}" title="삭제">✕</button>
+          ${selectMode?'':`<button class="del" data-action="del-tx" data-id="${t.id}" title="삭제">✕</button>`}
         </div>`;
       }).join('');
       return `<div class="tx-day">${Number(dk.slice(8))}일 (${wd})</div>${rows}`;
@@ -687,8 +715,13 @@ function renderLedger(){
       }).join('')}
     </div>`:''}
 
-    <div class="card">
-      <div class="sec-title" style="margin-bottom:12px">거래 내역</div>
+    <div class="card" style="${selectMode?'padding-bottom:78px':''}">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px">
+        <div class="sec-title" style="margin:0">거래 내역</div>
+        ${ selectMode
+            ? `<button class="btn ghost sm" data-action="select-all">전체 선택</button>`
+            : (state.transactions.length && list.length ? `<span class="muted" style="font-size:12px">탭하면 수정 · 꾸욱 누르면 여러 개 선택</span>` : '') }
+      </div>
       <div class="chips">
         <button class="chip" data-action="tx-filter" data-filter="all" aria-pressed="${txFilter==='all'}">전체</button>
         <button class="chip" data-action="tx-filter" data-filter="income" aria-pressed="${txFilter==='income'}">수입</button>
@@ -696,6 +729,11 @@ function renderLedger(){
       </div>
       ${listHTML}
     </div>
+    ${ selectMode ? `<div class="select-actionbar">
+      <button class="btn sec" data-action="exit-select">취소</button>
+      <span class="sel-count" id="sel-count">${selectedTx.size}개 선택됨</span>
+      <button class="btn" id="btn-del-sel" style="background:var(--up)" data-action="delete-selected" ${selectedTx.size===0?'disabled':''}>선택 삭제</button>
+    </div>` : '' }
   </section>`;
 }
 
@@ -948,18 +986,19 @@ let modalState = {};
 function openModal(html){ const m=document.getElementById('modal'); m.innerHTML=`<div class="scrim" data-action="modal-close"></div><div class="sheet">${html}</div>`; m.classList.add('on'); }
 function closeModal(){ const m=document.getElementById('modal'); m.classList.remove('on'); m.innerHTML=''; }
 
-function openTxModal(type){
-  modalState = { type, cat: null, newCatColor: null };
-  modalState.cat = catsFor(type)[0].key;
+function openTxModal(type, edit){
+  edit = edit || null;
+  if(edit) type = edit.type;
+  modalState = { type, cat: edit ? edit.category : catsFor(type)[0].key, newCatColor: null, editId: edit ? edit.id : null };
   openModal(`
     <div class="grip"></div>
-    <h3>거래 입력</h3>
+    <h3>${edit ? '거래 수정' : '거래 입력'}</h3>
     <div class="seg" id="type-seg">
       <button type="button" class="${type==='income'?'on-inc':''}" data-action="seg-type" data-type="income">📥 수입</button>
       <button type="button" class="${type==='expense'?'on-exp':''}" data-action="seg-type" data-type="expense">📤 지출</button>
     </div>
     <div class="field"><label>금액</label>
-      <input class="input amount num" id="f-amount" inputmode="numeric" placeholder="0" autocomplete="off"><span style="position:relative;float:right;margin-top:-36px;margin-right:14px;color:var(--txt-weak);font-weight:700">원</span></div>
+      <input class="input amount num" id="f-amount" inputmode="numeric" placeholder="0" autocomplete="off" value="${edit?Number(edit.amount).toLocaleString('ko-KR'):''}"><span style="position:relative;float:right;margin-top:-36px;margin-right:14px;color:var(--txt-weak);font-weight:700">원</span></div>
     <div class="field"><label>카테고리</label>
       <div class="catgrid" id="cat-grid">${catGridHTML(type, modalState.cat)}</div>
       <div class="newcat" id="newcat-panel" hidden>
@@ -976,9 +1015,10 @@ function openTxModal(type){
         <div class="nc-existing" id="nc-existing"></div>
       </div>
     </div>
-    <div class="field"><label>날짜</label><input class="input" type="date" id="f-date" value="${ todayDate() <= viewYM+'-31' && todayDate() >= viewYM+'-01' ? todayDate() : viewYM+'-01' }"></div>
-    <div class="field"><label>메모 (선택)</label><input class="input" id="f-memo" placeholder="예: 점심, 스타벅스" autocomplete="off"></div>
-    <button class="btn block" data-action="save-tx">저장하기</button>
+    <div class="field"><label>날짜</label><input class="input" type="date" id="f-date" value="${edit?edit.date:( todayDate() <= viewYM+'-31' && todayDate() >= viewYM+'-01' ? todayDate() : viewYM+'-01' )}"></div>
+    <div class="field"><label>메모 (선택)</label><input class="input" id="f-memo" placeholder="예: 점심, 스타벅스" autocomplete="off" value="${edit?esc(edit.memo||''):''}"></div>
+    <button class="btn block" data-action="save-tx">${edit?'수정 저장':'저장하기'}</button>
+    ${edit?`<button class="btn block sec" data-action="del-tx-edit" data-id="${edit.id}" style="margin-top:8px;color:var(--up)">이 내역 삭제</button>`:''}
   `);
   setTimeout(()=>{ const el=document.getElementById('f-amount'); el && el.focus(); }, 60);
   attachAmountFormat();
@@ -1515,15 +1555,51 @@ document.addEventListener('click', e=>{
       const memo = document.getElementById('f-memo').value.trim();
       if(!amount){ toast('금액을 입력해 주세요'); break; }
       if(!date){ toast('날짜를 선택해 주세요'); break; }
-      state.transactions.push({id:uid()+Math.random().toString(36).slice(2,5), type:modalState.type, category:modalState.cat, amount, date, memo});
-      save(); closeModal();
-      viewYM = date.slice(0,7); currentTab='ledger'; render();
-      toast((modalState.type==='income'?'수입':'지출')+' '+won(amount)+'원 저장됨');
+      if(modalState.editId){
+        const t = state.transactions.find(x=>x.id===modalState.editId);
+        if(t){ t.type=modalState.type; t.category=modalState.cat; t.amount=amount; t.date=date; t.memo=memo; }
+        save(); closeModal();
+        viewYM = date.slice(0,7); currentTab='ledger'; render();
+        toast('수정했어요');
+      } else {
+        state.transactions.push({id:uid()+Math.random().toString(36).slice(2,5), type:modalState.type, category:modalState.cat, amount, date, memo});
+        save(); closeModal();
+        viewYM = date.slice(0,7); currentTab='ledger'; render();
+        toast((modalState.type==='income'?'수입':'지출')+' '+won(amount)+'원 저장됨');
+      }
+      break;
+    }
+    case 'tx-row': {
+      if(lpFired){ lpFired=false; break; }   // 길게 누른 직후의 클릭은 무시
+      const id = el.dataset.id;
+      if(selectMode){ toggleSelect(id); }
+      else { const t = state.transactions.find(x=>x.id===id); if(t) openTxModal(t.type, t); }
       break;
     }
     case 'del-tx': {
       state.transactions = state.transactions.filter(t=>t.id!==el.dataset.id);
       save(); renderLedger(); toast('삭제했어요'); break;
+    }
+    case 'del-tx-edit': {
+      state.transactions = state.transactions.filter(t=>t.id!==el.dataset.id);
+      save(); closeModal(); renderLedger(); toast('삭제했어요'); break;
+    }
+    case 'exit-select': exitSelectMode(); break;
+    case 'select-all': {
+      const ids = visibleTxIds();
+      const allSel = ids.length>0 && ids.every(i=>selectedTx.has(i));
+      selectedTx = new Set(allSel ? [] : ids);   // 전체 선택 ↔ 전체 해제 토글
+      renderLedger();
+      break;
+    }
+    case 'delete-selected': {
+      const n = selectedTx.size;
+      if(n===0){ toast('선택된 항목이 없어요'); break; }
+      if(!confirm(n+'개 내역을 삭제할까요?')) break;
+      state.transactions = state.transactions.filter(t=>!selectedTx.has(t.id));
+      selectedTx.clear(); selectMode=false; save(); renderLedger();
+      toast(n+'개를 삭제했어요');
+      break;
     }
     case 'save-asset': {
       const account = document.getElementById('a-acct').value;
@@ -1572,6 +1648,20 @@ document.addEventListener('keydown', e=>{
   }
   if(e.key==='Escape') closeModal();
 });
+
+/* ---------- 길게 누르기(꾸욱) → 다중 선택 모드 ---------- */
+let lpTimer=null, lpFired=false, lpX=0, lpY=0;
+document.addEventListener('pointerdown', e=>{
+  const row = e.target.closest('.tx[data-id]');
+  if(!row || selectMode) return;
+  if(e.target.closest('[data-action="del-tx"]')) return;   // ✕ 삭제 버튼은 제외
+  lpFired=false; lpX=e.clientX; lpY=e.clientY;
+  clearTimeout(lpTimer);
+  lpTimer = setTimeout(()=>{ lpFired=true; enterSelectMode(row.dataset.id); setTimeout(()=>{ lpFired=false; }, 500); }, 500);
+});
+document.addEventListener('pointermove', e=>{ if(lpTimer && (Math.abs(e.clientX-lpX)>10 || Math.abs(e.clientY-lpY)>10)) clearTimeout(lpTimer); });
+document.addEventListener('pointerup', ()=>clearTimeout(lpTimer));
+document.addEventListener('pointercancel', ()=>clearTimeout(lpTimer));
 
 /* ---------- 시작 ---------- */
 function startApp(){
