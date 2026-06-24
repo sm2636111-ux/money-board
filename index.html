@@ -686,38 +686,48 @@ function salarySectionHTML(){
 }
 
 /* =========================================================
-   오늘의 운세 (행운 숫자 + 좋은 글귀) — 날짜별 고정
+   오늘의 운세 (행운 점수 60~100 + 구간별 글귀) — 날짜별 고정
    ========================================================= */
-const FORTUNE_QUOTES = [
-  "오늘 아낀 한 푼이 내일의 자유가 된다.",
-  "작은 습관이 큰 자산을 만든다.",
-  "기록하는 사람이 결국 모은다.",
-  "어제보다 1%만 나아지면 충분하다.",
-  "조급함은 가장 비싼 지출이다.",
-  "복리는 세상에서 가장 강력한 힘이다.",
-  "느려도 멈추지 않으면 반드시 도착한다.",
-  "지출을 알면 인생이 보인다.",
-  "비교하지 말고 어제의 나와 경쟁하라.",
-  "꾸준함이 재능을 이긴다.",
-  "오늘의 절약이 미래의 선택지를 늘린다.",
-  "천 리 길도 한 걸음부터.",
-  "씨를 뿌리지 않으면 거둘 것도 없다.",
-  "돈을 다스리면 마음이 편안해진다.",
+const FORTUNE_BANDS = [
+  { min:60, max:79, emoji:'💪', label:'고된 하루지만, 힘내요', color:'#FF8A3D', quotes:[
+    "고된 하루일 수 있어요. 그래도 오늘의 한 걸음이 내일을 만들어요.",
+    "조금 지치는 날엔 무리하지 말고 천천히 가요.",
+    "힘든 날일수록 작은 절약 하나가 큰 힘이 돼요.",
+    "버티는 것도 실력이에요. 오늘 하루도 잘 버텨봐요.",
+  ]},
+  { min:80, max:89, emoji:'😊', label:'무난하고 행복한 하루', color:'#15B886', quotes:[
+    "무난하고 평온한 하루, 이런 날이 모여 행복이 돼요.",
+    "특별하지 않아도 충분히 좋은 하루예요.",
+    "잔잔하게 흘러가는 하루, 마음도 지갑도 평화롭게.",
+    "오늘처럼만 하면 충분해요. 기분 좋은 하루!",
+  ]},
+  { min:90, max:100, emoji:'🍀', label:'오늘은 럭키데이!', color:'#F04452', quotes:[
+    "오늘은 럭키데이! 좋은 일이 들어올 거예요.",
+    "운이 좋은 날! 작은 행운까지 놓치지 마세요.",
+    "뭘 해도 잘 풀리는 날, 자신 있게 가요!",
+    "행운이 함께하는 하루, 좋은 결정엔 과감하게!",
+  ]},
 ];
 function fortuneCardHTML(){
   const [yy,mm,dd] = todayDate().split('-');
   const seed = parseInt(yy+mm+dd,10) || 0;
-  const lucky = (seed % 45) + 1;
-  const quote = FORTUNE_QUOTES[seed % FORTUNE_QUOTES.length];
+  const score = 60 + (seed % 41);   // 60~100점
+  const band = FORTUNE_BANDS.find(b=> score>=b.min && score<=b.max) || FORTUNE_BANDS[0];
+  const quote = band.quotes[seed % band.quotes.length];
   return `
     <div class="card">
       <div class="label">🍀 오늘의 운세 · ${Number(mm)}월 ${Number(dd)}일</div>
       <div style="display:flex; align-items:center; gap:18px; margin-top:10px">
         <div style="text-align:center; flex:none">
-          <div class="muted" style="font-size:11px; margin-bottom:4px">행운 숫자</div>
-          <div style="width:56px; height:56px; border-radius:16px; background:var(--primary-weak); color:var(--primary); display:grid; place-items:center; font-size:25px; font-weight:800">${lucky}</div>
+          <div class="muted" style="font-size:11px; margin-bottom:4px">행운 점수</div>
+          <div style="width:64px; height:64px; border-radius:18px; background:${band.color}1f; color:${band.color}; display:flex; align-items:baseline; justify-content:center; font-weight:800; line-height:1">
+            <span style="font-size:26px">${score}</span><span style="font-size:12px; margin-left:1px">점</span>
+          </div>
         </div>
-        <div style="flex:1; font-size:14px; color:var(--txt); line-height:1.55">“${quote}”</div>
+        <div style="flex:1">
+          <div style="font-weight:700; font-size:14px; color:${band.color}; margin-bottom:5px">${band.emoji} ${band.label}</div>
+          <div style="font-size:13px; color:var(--txt); line-height:1.55">“${quote}”</div>
+        </div>
       </div>
     </div>`;
 }
