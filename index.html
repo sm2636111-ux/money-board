@@ -443,7 +443,7 @@ function defaultNewAcctColor(){ const used=new Set(allAccounts().map(a=>a.color)
 
 /* ---------- 상태 ---------- */
 function defaultState(){
-  return { transactions:[], assets:[], cards:[], theme:'auto', appName:'자산관리', customCats:{income:[],expense:[]}, customAccounts:[], market:{ kospi:null, fx:null, ts:null, kospiManual:null } };
+  return { transactions:[], assets:[], cards:[], salaries:[], theme:'auto', appName:'자산관리', customCats:{income:[],expense:[]}, customAccounts:[], market:{ kospi:null, fx:null, ts:null, kospiManual:null } };
 }
 let state = defaultState();                 // 로그인 전 placeholder
 function load(){
@@ -584,6 +584,69 @@ function sparkSVG(vals, color){
 }
 
 /* =========================================================
+   로드맵 · 연봉 (홈 하단)
+   ========================================================= */
+function salariesAsc(){ return [...(state.salaries||[])].sort((a,b)=> String(a.year)<String(b.year)?-1:1); }
+function salaryCompanies(){ return [...new Set((state.salaries||[]).map(s=>s.company).filter(Boolean))]; }
+const salaryTotal = s => (s.base||0)+(s.bonus||0);
+
+function openSalaryModal(edit){
+  edit = edit||null;
+  modalState = { editSalaryId: edit?edit.id:null };
+  const dl = salaryCompanies().map(c=>`<option value="${esc(c)}"></option>`).join('');
+  const curYear = todayYM().slice(0,4);
+  openModal(`
+    <div class="grip"></div>
+    <h3>${edit?'연봉 수정':'연봉 입력'}</h3>
+    <div class="tip">계약연봉 + 상여금 = 그 해의 <b>총연봉</b>으로 정리돼요. 같은 연도를 다시 입력하면 덮어써요.</div>
+    <div class="field"><label>연도</label><input class="input" id="s-year" inputmode="numeric" maxlength="4" placeholder="${curYear}" value="${edit?esc(String(edit.year)):curYear}" autocomplete="off"></div>
+    <div class="field"><label>회사명</label><input class="input" id="s-company" list="salary-companies" placeholder="예: ○○주식회사" maxlength="24" autocomplete="off" value="${edit?esc(edit.company||''):''}"><datalist id="salary-companies">${dl}</datalist></div>
+    <div class="field"><label>계약연봉</label>
+      <input class="input amount num" id="s-base" inputmode="numeric" placeholder="0" autocomplete="off" value="${edit&&edit.base?Number(edit.base).toLocaleString('ko-KR'):''}"><span style="position:relative;float:right;margin-top:-36px;margin-right:14px;color:var(--txt-weak);font-weight:700">원</span></div>
+    <div class="field"><label>상여금</label>
+      <input class="input num" id="s-bonus" inputmode="numeric" placeholder="0" autocomplete="off" style="font-weight:700" value="${edit&&edit.bonus?Number(edit.bonus).toLocaleString('ko-KR'):''}"><span style="position:relative;float:right;margin-top:-36px;margin-right:14px;color:var(--txt-weak);font-weight:700">원</span></div>
+    <button class="btn block" data-action="save-salary">${edit?'수정 저장':'저장하기'}</button>
+    ${edit?`<button class="btn block sec" data-action="del-salary-edit" data-id="${edit.id}" style="margin-top:8px;color:var(--up)">이 연봉 삭제</button>`:''}
+  `);
+  setTimeout(()=>{ const el=document.getElementById('s-year'); if(el) el.focus(); },60);
+  attachAmountFormat();
+}
+
+function salarySectionHTML(){
+  const asc = salariesAsc();
+  const chartData = asc.map(s=>({ label:"'"+String(s.year).slice(2), value: salaryTotal(s) }));
+  const desc = [...asc].reverse();
+  const rowsHTML = asc.length ? desc.map(s=>{
+    const total = salaryTotal(s);
+    const idx = asc.findIndex(x=>x.id===s.id);
+    const prev = idx>0 ? asc[idx-1] : null;
+    const prevTotal = prev ? salaryTotal(prev) : null;
+    const yoy = (prevTotal && prevTotal>0) ? (total-prevTotal)/prevTotal*100 : null;
+    const col = yoy==null?'var(--txt-weak)':(yoy>=0?'var(--up)':'var(--down)');
+    return `<div class="tx" data-action="salary-row" data-id="${s.id}">
+      <div class="ic" style="background:var(--primary-weak);color:var(--primary);font-size:12px;font-weight:700">${esc(String(s.year))}</div>
+      <div class="meta"><div class="cat">${esc(s.company||'-')}</div><div class="memo">계약 ${won(s.base||0)} · 상여 ${won(s.bonus||0)}</div></div>
+      <div style="text-align:right; white-space:nowrap">
+        <div class="num" style="font-weight:700; font-size:15px">${won(total)}원</div>
+        ${yoy!=null?`<div class="num" style="font-size:11px; font-weight:700; color:${col}">${yoy>=0?'▲':'▼'} ${fmtPct(yoy)}</div>`:`<div class="muted" style="font-size:11px">기준 연도</div>`}
+      </div>
+      <button class="del" data-action="del-salary" data-id="${s.id}" title="삭제">✕</button>
+    </div>`;
+  }).join('') : '';
+  return `
+    <div class="card">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px">
+        <div class="sec-title" style="margin:0">🗺️ 로드맵 · 연봉</div>
+        <button class="btn sm" data-action="open-salary">＋ 연봉 입력</button>
+      </div>
+      <div class="sec-sub">계약연봉 + 상여금 = 총연봉 · 전년 대비 인상율</div>
+      ${ asc.length
+          ? `<div class="scroll-x" style="margin-bottom:8px">${areaSVG(chartData,{height:175})}</div>${rowsHTML}`
+          : `<div class="empty"><div class="em">🗺️</div><p>연봉을 입력하면 해마다 오르는<br>나의 연봉 그래프가 그려져요.</p><button class="btn sm" data-action="open-salary" style="margin-top:6px">＋ 첫 연봉 입력</button></div>` }
+    </div>`;
+}
+
+/* =========================================================
    홈 (요약 대시보드)
    ========================================================= */
 function renderHome(){
@@ -639,6 +702,8 @@ function renderHome(){
         <button class="btn sec" data-action="open-card">💳 카드값 입력</button>
       </div>
     </div>
+
+    ${salarySectionHTML()}
   </section>`;
 }
 
@@ -1318,6 +1383,7 @@ function backupForUndo(){
     transactions:   JSON.parse(JSON.stringify(state.transactions)),
     assets:         JSON.parse(JSON.stringify(state.assets)),
     cards:          JSON.parse(JSON.stringify(state.cards || [])),
+    salaries:       JSON.parse(JSON.stringify(state.salaries || [])),
     customCats:     JSON.parse(JSON.stringify(state.customCats || {income:[],expense:[]})),
     customAccounts: JSON.parse(JSON.stringify(state.customAccounts || [])),
   };
@@ -1436,7 +1502,7 @@ function renderChangePin(){
 /* ---------- 기기 간 옮기기 (백업/복원) ---------- */
 function buildBackup(){
   return { app:'MoneyBoard', v:1, user: currentUser? currentUser.id:null, exportedAt: Date.now(),
-    transactions: state.transactions, assets: state.assets, cards: state.cards || [],
+    transactions: state.transactions, assets: state.assets, cards: state.cards || [], salaries: state.salaries || [],
     customCats: state.customCats || {income:[],expense:[]},
     customAccounts: state.customAccounts || [], appName: state.appName };
 }
@@ -1459,6 +1525,9 @@ function mergeBackup(obj){
   if(!state.cards) state.cards=[];
   const cdIds = new Set(state.cards.map(c=>c.id));
   (obj.cards||[]).forEach(c=>{ if(c && c.id && !cdIds.has(c.id)){ state.cards.push(c); cdIds.add(c.id); } });
+  if(!state.salaries) state.salaries=[];
+  const slIds = new Set(state.salaries.map(s=>s.id));
+  (obj.salaries||[]).forEach(s=>{ if(s && s.id && !slIds.has(s.id)){ state.salaries.push(s); slIds.add(s.id); } });
   if(!state.customCats) state.customCats = {income:[],expense:[]};
   ['income','expense'].forEach(type=>{
     if(!state.customCats[type]) state.customCats[type]=[];
@@ -1633,6 +1702,7 @@ document.addEventListener('click', e=>{
         state.assets = state._undo.assets;
         state.customCats = state._undo.customCats;
         if(state._undo.cards) state.cards = state._undo.cards;
+        if(state._undo.salaries) state.salaries = state._undo.salaries;
         if(state._undo.customAccounts) state.customAccounts = state._undo.customAccounts;
         delete state._undo; save(); closeModal(); render();
         toast('직전 상태로 되돌렸어요');
@@ -1642,7 +1712,7 @@ document.addEventListener('click', e=>{
     case 'reset-all': {
       if(confirm('모든 가계부·자산 데이터를 삭제할까요?\n(서비스 이름·비밀번호는 유지되고, 삭제 직후 설정에서 한 번 되돌릴 수 있어요)')){
         backupForUndo();
-        state.transactions = []; state.assets = []; state.cards = []; state.customCats = {income:[],expense:[]}; state.customAccounts = [];
+        state.transactions = []; state.assets = []; state.cards = []; state.salaries = []; state.customCats = {income:[],expense:[]}; state.customAccounts = [];
         save(); closeModal(); render();
         toast('전체 데이터를 초기화했어요');
       }
@@ -1859,6 +1929,37 @@ document.addEventListener('click', e=>{
         toast(company+' '+ymLabel(ym)+' 저장됨');
       }
       cardYM = ym; save(); closeModal(); currentTab='assets'; render();
+      break;
+    }
+    case 'open-salary': openSalaryModal(); break;
+    case 'salary-row': { const s=(state.salaries||[]).find(x=>x.id===el.dataset.id); if(s) openSalaryModal(s); break; }
+    case 'del-salary': {
+      state.salaries = (state.salaries||[]).filter(s=>s.id!==el.dataset.id);
+      save(); render(); toast('삭제했어요'); break;
+    }
+    case 'del-salary-edit': {
+      state.salaries = (state.salaries||[]).filter(s=>s.id!==el.dataset.id);
+      save(); closeModal(); render(); toast('삭제했어요'); break;
+    }
+    case 'save-salary': {
+      const yr = (document.getElementById('s-year').value||'').replace(/[^\d]/g,'');
+      const company = (document.getElementById('s-company').value||'').trim();
+      const base = parseNum('s-base');
+      const bonus = parseNum('s-bonus');
+      if(!/^\d{4}$/.test(yr)){ toast('연도를 4자리로 입력해 주세요'); break; }
+      if(!base && !bonus){ toast('계약연봉이나 상여금을 입력해 주세요'); break; }
+      if(!state.salaries) state.salaries=[];
+      if(modalState.editSalaryId){
+        state.salaries = state.salaries.filter(s=> s.id===modalState.editSalaryId || s.year!==yr);
+        const t = state.salaries.find(s=>s.id===modalState.editSalaryId);
+        if(t){ t.year=yr; t.company=company; t.base=base; t.bonus=bonus; }
+        toast('수정했어요');
+      } else {
+        state.salaries = state.salaries.filter(s=>s.year!==yr);   // 같은 연도 덮어쓰기
+        state.salaries.push({id:uid()+Math.random().toString(36).slice(2,5), year:yr, company, base, bonus});
+        toast(yr+'년 연봉 저장됨');
+      }
+      save(); closeModal(); currentTab='home'; render();
       break;
     }
     case 'save-asset': {
