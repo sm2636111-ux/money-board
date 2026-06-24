@@ -393,9 +393,22 @@ function isMaster(){ return !!currentUser && currentUser.id==='u1'; }
 function storageKey(){ return 'assetmgr.v1.' + (currentUser ? currentUser.id : 'guest'); }
 // 사용자 목록 로드/저장 (로그인 전부터 필요 — 기기 전역)
 function loadUsers(){
-  try{ const raw=JSON.parse(localStorage.getItem('assetmgr.users')); if(Array.isArray(raw)&&raw.length){ USERS = raw.map(u=>({id:u.id,name:u.name,pin:String(u.pin)})); return; } }catch(e){}
-  // 최초 1회: 기존 비밀번호 변경 기록(assetmgr.pins) 반영
-  try{ const p=JSON.parse(localStorage.getItem('assetmgr.pins'))||{}; USERS.forEach(u=>{ if(p[u.id]) u.pin=p[u.id]; }); }catch(e){}
+  let loaded=false;
+  try{ const raw=JSON.parse(localStorage.getItem('assetmgr.users')); if(Array.isArray(raw)&&raw.length){ USERS = raw.map(u=>({id:u.id,name:u.name,pin:String(u.pin)})); loaded=true; } }catch(e){}
+  if(!loaded){
+    // 최초 1회: 기존 비밀번호 변경 기록(assetmgr.pins) 반영
+    try{ const p=JSON.parse(localStorage.getItem('assetmgr.pins'))||{}; USERS.forEach(u=>{ if(p[u.id]) u.pin=p[u.id]; }); }catch(e){}
+  }
+  // 게스트(0000·비마스터) 계정 1회 보장 — 기존 목록에도 추가, 삭제하면 다시 안 생김
+  try{
+    if(localStorage.getItem('assetmgr.guest_added')!=='1'){
+      if(!USERS.some(u=>u.id==='u0') && !USERS.some(u=>u.pin==='0000')){
+        USERS.push({id:'u0', name:'게스트', pin:'0000'});
+        saveUsers();
+      }
+      localStorage.setItem('assetmgr.guest_added','1');
+    }
+  }catch(e){}
 }
 function saveUsers(){ try{ localStorage.setItem('assetmgr.users', JSON.stringify(USERS.map(u=>({id:u.id,name:u.name,pin:u.pin})))); }catch(e){} }
 
@@ -1567,7 +1580,10 @@ function renderUsersModal(){
 /* ---------- 비밀번호 변경 (핵심키 필요) ---------- */
 function openChangePinModal(){ modalState = { coreOK:false }; renderChangePin(); }
 function renderChangePin(){
-  const users = USERS.map(u=>`<option value="${u.id}" ${currentUser&&currentUser.id===u.id?'selected':''}>${esc(u.name)}</option>`).join('');
+  // 마스터(사용자1)는 모든 사용자 선택 가능, 그 외에는 본인만
+  const users = isMaster()
+    ? USERS.map(u=>`<option value="${u.id}" ${currentUser&&currentUser.id===u.id?'selected':''}>${esc(u.name)}</option>`).join('')
+    : `<option value="${currentUser.id}">${esc(currentUser.name)}</option>`;
   openModal(`
     <div class="grip" data-action="modal-close"></div>
     <h3>비밀번호 변경</h3>
@@ -1577,8 +1593,8 @@ function renderChangePin(){
         <input class="input" id="core-key" type="password" inputmode="numeric" maxlength="6" placeholder="핵심키 6자리" autocomplete="off"></div>
       <button class="btn block" data-action="verify-core">확인</button>
     ` : `
-      <div class="tip" style="color:var(--down)">✓ 핵심키 확인됨. 변경할 사용자와 새 비밀번호(숫자 4자리)를 입력하세요.</div>
-      <div class="field"><label>사용자</label><select class="input" id="cp-user">${users}</select></div>
+      <div class="tip" style="color:var(--down)">✓ 핵심키 확인됨. ${isMaster()?'변경할 사용자와 ':''}새 비밀번호(숫자 4자리)를 입력하세요.</div>
+      <div class="field"><label>사용자</label><select class="input" id="cp-user" ${isMaster()?'':'disabled'}>${users}</select></div>
       <div class="field"><label>새 비밀번호 (숫자 4자리)</label>
         <input class="input" id="cp-new" type="password" inputmode="numeric" maxlength="4" placeholder="● ● ● ●" autocomplete="off"></div>
       <div class="field"><label>새 비밀번호 확인</label>
