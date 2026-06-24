@@ -164,8 +164,8 @@ section.view{animation:fade .22s ease;}
 .tx .del{opacity:0; border:none; background:transparent; color:var(--txt-weak); cursor:pointer; font-size:15px; padding:6px; border-radius:8px; transition:.15s;}
 .tx:hover .del{opacity:1;}
 .tx .del:hover{background:var(--up-weak); color:var(--up);}
-.tx[data-action="tx-row"]{cursor:pointer; border-radius:10px; padding-left:6px; padding-right:6px;}
-.tx[data-action="tx-row"]:hover{background:var(--bg);}
+.tx[data-action="tx-row"], .tx[data-action="asset-row"]{cursor:pointer; border-radius:10px; padding-left:6px; padding-right:6px;}
+.tx[data-action="tx-row"]:hover, .tx[data-action="asset-row"]:hover{background:var(--bg);}
 .tx.sel{background:var(--primary-weak);}
 .tx.sel:hover{background:var(--primary-weak);}
 .tx-check{width:22px;height:22px;border-radius:999px;border:2px solid var(--line);flex:none;display:grid;place-items:center;transition:background .15s ease,border-color .15s ease;}
@@ -740,6 +740,22 @@ function renderLedger(){
 /* =========================================================
    자산 · 투자 탭
    ========================================================= */
+/* ---------- 자산 스냅샷 다중 선택 ---------- */
+let assetSelectMode = false;
+let selectedAssets = new Set();
+function accIdx(key){ const i = allAccounts().findIndex(a=>a.key===key); return i<0?999:i; }
+function sortedSnaps(){ return [...state.assets].sort((a,b)=> a.ym<b.ym?1 : a.ym>b.ym?-1 : (accIdx(a.account)-accIdx(b.account))); }
+function visibleAssetIds(){ return sortedSnaps().map(a=>a.id); }
+function enterAssetSelectMode(id){ assetSelectMode=true; selectedAssets=new Set(id?[id]:[]); renderAssets(); toast('선택 모드 · 여러 스냅샷을 골라 한 번에 삭제하세요'); }
+function exitAssetSelectMode(){ assetSelectMode=false; selectedAssets.clear(); renderAssets(); }
+function toggleAssetSelect(id){
+  if(selectedAssets.has(id)) selectedAssets.delete(id); else selectedAssets.add(id);
+  const row=document.querySelector(`.tx[data-id="${id}"]`);
+  if(row){ const on=selectedAssets.has(id); row.classList.toggle('sel',on); const cb=row.querySelector('.tx-check'); if(cb) cb.classList.toggle('on',on); }
+  const c=document.getElementById('asset-sel-count'); if(c) c.textContent=selectedAssets.size+'개 선택됨';
+  const d=document.getElementById('btn-del-asset-sel'); if(d) d.disabled=(selectedAssets.size===0);
+}
+
 // 모든 스냅샷 월 목록
 function assetMonths(){
   return [...new Set(state.assets.map(a=>a.ym))].sort();
@@ -822,6 +838,22 @@ function renderAssets(){
   } else {
     const tCol = totDelta==null?'var(--txt-weak)':totDelta>=0?'var(--up)':'var(--down)';
     const tBg  = totDelta==null?'var(--line-soft)':totDelta>=0?'var(--up-weak)':'var(--down-weak)';
+    // 자산 입력 내역 (월별 그룹 · 최신순)
+    const snaps = sortedSnaps();
+    const byYm = {}; snaps.forEach(s=>{ (byYm[s.ym]=byYm[s.ym]||[]).push(s); });
+    const snapListHTML = Object.keys(byYm).sort().reverse().map(ym=>{
+      const rows = byYm[ym].map(s=>{
+        const ac = acctOf(s.account);
+        return `<div class="tx ${assetSelectMode&&selectedAssets.has(s.id)?'sel':''}" data-action="asset-row" data-id="${s.id}">
+          ${assetSelectMode?`<span class="tx-check ${selectedAssets.has(s.id)?'on':''}" aria-hidden="true"></span>`:''}
+          <div class="ic" style="background:${ac.color}1f;color:${ac.color};font-size:12px;font-weight:700">${esc(ac.short)}</div>
+          <div class="meta"><div class="cat">${esc(ac.name)}</div><div class="memo">납입원금 ${won(s.principal||0)}원</div></div>
+          <div class="amt num" style="color:var(--txt-strong)">${won(s.value)}원</div>
+          ${assetSelectMode?'':`<button class="del" data-action="del-asset" data-id="${s.id}" title="삭제">✕</button>`}
+        </div>`;
+      }).join('');
+      return `<div class="tx-day">${ymLabel(ym)}</div>${rows}`;
+    }).join('');
     body = `
     <div class="card" style="text-align:center">
       <div class="label">총 자산 ${series.length?'· '+ymLabel(series[series.length-1].ym):''}</div>
@@ -847,7 +879,22 @@ function renderAssets(){
       <div class="sec-title">월별 증감</div>
       <div class="sec-sub">전월 대비 자산 변화 · <span class="up">▲ 증가</span> / <span class="down">▼ 감소</span></div>
       <div class="scroll-x">${barsSVG(changeData,{height:150,signed:true})}</div>
-    </div>`;
+    </div>
+
+    <div class="card" style="${assetSelectMode?'padding-bottom:78px':''}">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px">
+        <div class="sec-title" style="margin:0">자산 입력 내역</div>
+        ${ assetSelectMode
+            ? `<button class="btn ghost sm" data-action="asset-select-all">전체 선택</button>`
+            : `<span class="muted" style="font-size:12px">탭하면 수정 · 꾸욱 누르면 여러 개 선택</span>` }
+      </div>
+      ${snapListHTML}
+    </div>
+    ${ assetSelectMode ? `<div class="select-actionbar">
+      <button class="btn sec" data-action="exit-asset-select">취소</button>
+      <span class="sel-count" id="asset-sel-count">${selectedAssets.size}개 선택됨</span>
+      <button class="btn" id="btn-del-asset-sel" style="background:var(--up)" data-action="delete-selected-assets" ${selectedAssets.size===0?'disabled':''}>선택 삭제</button>
+    </div>` : '' }`;
   }
 
   // 시장 지표 섹션
@@ -1046,14 +1093,15 @@ function renderNcExisting(){
   }).join('');
 }
 
-function openAssetModal(){
-  modalState = { newAcctColor:null };
+function openAssetModal(edit){
+  edit = edit || null;
+  modalState = { newAcctColor:null, editAssetId: edit ? edit.id : null };
   openModal(`
     <div class="grip"></div>
-    <h3>자산 스냅샷 입력</h3>
+    <h3>${edit ? '자산 스냅샷 수정' : '자산 스냅샷 입력'}</h3>
     <div class="tip">각 계좌의 <b>월말 평가액</b>과 <b>납입원금</b>을 기록하면 총자산·월별 증감·수익률이 자동 계산돼요. 같은 계좌·같은 달을 다시 입력하면 덮어써요.</div>
     <div class="field"><label>계좌</label>
-      <select class="input" id="a-acct">${acctOptions()}</select>
+      <select class="input" id="a-acct">${acctOptions(edit?edit.account:undefined)}</select>
       <button type="button" class="btn ghost sm" data-action="add-acct-toggle" style="margin-top:8px; padding:8px 10px;">＋ 새 계좌 추가</button>
       <div class="newcat" id="newacct-panel" hidden>
         <div class="newcat-title">새 계좌 만들기</div>
@@ -1066,12 +1114,13 @@ function openAssetModal(){
         <div class="nc-existing" id="na-existing"></div>
       </div>
     </div>
-    <div class="field"><label>기준 월</label><input class="input" type="month" id="a-ym" value="${viewYM}"></div>
+    <div class="field"><label>기준 월</label><input class="input" type="month" id="a-ym" value="${edit?edit.ym:viewYM}"></div>
     <div class="field"><label>평가액 (현재 잔고)</label>
-      <input class="input amount num" id="a-value" inputmode="numeric" placeholder="0" autocomplete="off"><span style="position:relative;float:right;margin-top:-36px;margin-right:14px;color:var(--txt-weak);font-weight:700">원</span></div>
+      <input class="input amount num" id="a-value" inputmode="numeric" placeholder="0" autocomplete="off" value="${edit?Number(edit.value).toLocaleString('ko-KR'):''}"><span style="position:relative;float:right;margin-top:-36px;margin-right:14px;color:var(--txt-weak);font-weight:700">원</span></div>
     <div class="field"><label>납입원금 (선택 · 투자성과 계산용)</label>
-      <input class="input num" id="a-principal" inputmode="numeric" placeholder="0" autocomplete="off" style="font-weight:700"><span style="position:relative;float:right;margin-top:-36px;margin-right:14px;color:var(--txt-weak);font-weight:700">원</span></div>
-    <button class="btn block" data-action="save-asset">저장하기</button>
+      <input class="input num" id="a-principal" inputmode="numeric" placeholder="0" autocomplete="off" style="font-weight:700" value="${edit&&edit.principal?Number(edit.principal).toLocaleString('ko-KR'):''}"><span style="position:relative;float:right;margin-top:-36px;margin-right:14px;color:var(--txt-weak);font-weight:700">원</span></div>
+    <button class="btn block" data-action="save-asset">${edit?'수정 저장':'저장하기'}</button>
+    ${edit?`<button class="btn block sec" data-action="del-asset-edit" data-id="${edit.id}" style="margin-top:8px;color:var(--up)">이 스냅샷 삭제</button>`:''}
   `);
   setTimeout(()=>{ const el=document.getElementById('a-value'); el && el.focus(); },60);
   attachAmountFormat();
@@ -1601,6 +1650,38 @@ document.addEventListener('click', e=>{
       toast(n+'개를 삭제했어요');
       break;
     }
+    case 'asset-row': {
+      if(lpFired){ lpFired=false; break; }
+      const id = el.dataset.id;
+      if(assetSelectMode){ toggleAssetSelect(id); }
+      else { const s = state.assets.find(a=>a.id===id); if(s) openAssetModal(s); }
+      break;
+    }
+    case 'del-asset': {
+      state.assets = state.assets.filter(a=>a.id!==el.dataset.id);
+      save(); renderAssets(); toast('삭제했어요'); break;
+    }
+    case 'del-asset-edit': {
+      state.assets = state.assets.filter(a=>a.id!==el.dataset.id);
+      save(); closeModal(); renderAssets(); toast('삭제했어요'); break;
+    }
+    case 'exit-asset-select': exitAssetSelectMode(); break;
+    case 'asset-select-all': {
+      const ids = visibleAssetIds();
+      const allSel = ids.length>0 && ids.every(i=>selectedAssets.has(i));
+      selectedAssets = new Set(allSel ? [] : ids);
+      renderAssets();
+      break;
+    }
+    case 'delete-selected-assets': {
+      const n = selectedAssets.size;
+      if(n===0){ toast('선택된 항목이 없어요'); break; }
+      if(!confirm(n+'개 스냅샷을 삭제할까요?')) break;
+      state.assets = state.assets.filter(a=>!selectedAssets.has(a.id));
+      selectedAssets.clear(); assetSelectMode=false; save(); renderAssets();
+      toast(n+'개를 삭제했어요');
+      break;
+    }
     case 'save-asset': {
       const account = document.getElementById('a-acct').value;
       const ym = document.getElementById('a-ym').value;
@@ -1608,11 +1689,20 @@ document.addEventListener('click', e=>{
       const principal = parseNum('a-principal');
       if(!value){ toast('평가액을 입력해 주세요'); break; }
       if(!ym){ toast('기준 월을 선택해 주세요'); break; }
-      // 같은 계좌·같은 달이면 덮어쓰기
-      state.assets = state.assets.filter(a=>!(a.account===account && a.ym===ym));
-      state.assets.push({id:uid()+Math.random().toString(36).slice(2,5), account, ym, value, principal});
-      save(); closeModal(); currentTab='assets'; render();
-      toast(acctOf(account).short+' '+ymLabel(ym)+' 저장됨');
+      if(modalState.editAssetId){
+        // 수정: 다른 스냅샷과 (계좌,월) 충돌 시 그것을 제거(덮어쓰기) 후 현재 항목 갱신
+        state.assets = state.assets.filter(a=> a.id===modalState.editAssetId || !(a.account===account && a.ym===ym));
+        const t = state.assets.find(a=>a.id===modalState.editAssetId);
+        if(t){ t.account=account; t.ym=ym; t.value=value; t.principal=principal; }
+        save(); closeModal(); currentTab='assets'; render();
+        toast('수정했어요');
+      } else {
+        // 같은 계좌·같은 달이면 덮어쓰기
+        state.assets = state.assets.filter(a=>!(a.account===account && a.ym===ym));
+        state.assets.push({id:uid()+Math.random().toString(36).slice(2,5), account, ym, value, principal});
+        save(); closeModal(); currentTab='assets'; render();
+        toast(acctOf(account).short+' '+ymLabel(ym)+' 저장됨');
+      }
       break;
     }
     case 'manual-kospi': {
@@ -1653,11 +1743,13 @@ document.addEventListener('keydown', e=>{
 let lpTimer=null, lpFired=false, lpX=0, lpY=0;
 document.addEventListener('pointerdown', e=>{
   const row = e.target.closest('.tx[data-id]');
-  if(!row || selectMode) return;
-  if(e.target.closest('[data-action="del-tx"]')) return;   // ✕ 삭제 버튼은 제외
+  if(!row) return;
+  const isAsset = row.getAttribute('data-action')==='asset-row';
+  if(isAsset ? assetSelectMode : selectMode) return;
+  if(e.target.closest('[data-action="del-tx"]') || e.target.closest('[data-action="del-asset"]')) return;   // ✕ 삭제 버튼은 제외
   lpFired=false; lpX=e.clientX; lpY=e.clientY;
   clearTimeout(lpTimer);
-  lpTimer = setTimeout(()=>{ lpFired=true; enterSelectMode(row.dataset.id); setTimeout(()=>{ lpFired=false; }, 500); }, 500);
+  lpTimer = setTimeout(()=>{ lpFired=true; if(isAsset) enterAssetSelectMode(row.dataset.id); else enterSelectMode(row.dataset.id); setTimeout(()=>{ lpFired=false; }, 500); }, 500);
 });
 document.addEventListener('pointermove', e=>{ if(lpTimer && (Math.abs(e.clientX-lpX)>10 || Math.abs(e.clientY-lpY)>10)) clearTimeout(lpTimer); });
 document.addEventListener('pointerup', ()=>clearTimeout(lpTimer));
