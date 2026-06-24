@@ -164,8 +164,8 @@ section.view{animation:fade .22s ease;}
 .tx .del{opacity:0; border:none; background:transparent; color:var(--txt-weak); cursor:pointer; font-size:15px; padding:6px; border-radius:8px; transition:.15s;}
 .tx:hover .del{opacity:1;}
 .tx .del:hover{background:var(--up-weak); color:var(--up);}
-.tx[data-action="tx-row"], .tx[data-action="asset-row"]{cursor:pointer; border-radius:10px; padding-left:6px; padding-right:6px;}
-.tx[data-action="tx-row"]:hover, .tx[data-action="asset-row"]:hover{background:var(--bg);}
+.tx[data-action="tx-row"], .tx[data-action="asset-row"], .tx[data-action="card-row"]{cursor:pointer; border-radius:10px; padding-left:6px; padding-right:6px;}
+.tx[data-action="tx-row"]:hover, .tx[data-action="asset-row"]:hover, .tx[data-action="card-row"]:hover{background:var(--bg);}
 .tx.sel{background:var(--primary-weak);}
 .tx.sel:hover{background:var(--primary-weak);}
 .tx-check{width:22px;height:22px;border-radius:999px;border:2px solid var(--line);flex:none;display:grid;place-items:center;transition:background .15s ease,border-color .15s ease;}
@@ -441,7 +441,7 @@ function defaultNewAcctColor(){ const used=new Set(allAccounts().map(a=>a.color)
 
 /* ---------- 상태 ---------- */
 function defaultState(){
-  return { transactions:[], assets:[], theme:'auto', appName:'자산관리', customCats:{income:[],expense:[]}, customAccounts:[], market:{ kospi:null, fx:null, ts:null, kospiManual:null } };
+  return { transactions:[], assets:[], cards:[], theme:'auto', appName:'자산관리', customCats:{income:[],expense:[]}, customAccounts:[], market:{ kospi:null, fx:null, ts:null, kospiManual:null } };
 }
 let state = defaultState();                 // 로그인 전 placeholder
 function load(){
@@ -756,6 +756,71 @@ function toggleAssetSelect(id){
   const d=document.getElementById('btn-del-asset-sel'); if(d) d.disabled=(selectedAssets.size===0);
 }
 
+/* ---------- 카드값 (부채) ---------- */
+let cardYM = todayYM();
+function cardsOf(ym){ return (state.cards||[]).filter(c=>c.ym===ym).sort((a,b)=>b.amount-a.amount); }
+function cardMonths(){ return [...new Set((state.cards||[]).map(c=>c.ym))].sort(); }
+function cardCompanies(){ return [...new Set((state.cards||[]).map(c=>c.company))]; }
+function upcomingCardTotal(){ const t=todayYM(); return (state.cards||[]).filter(c=>c.ym>=t).reduce((s,c)=>s+c.amount,0); }
+
+function openCardModal(edit){
+  edit = edit||null;
+  modalState = { editCardId: edit?edit.id:null };
+  const dl = cardCompanies().map(c=>`<option value="${esc(c)}"></option>`).join('');
+  openModal(`
+    <div class="grip"></div>
+    <h3>${edit?'카드값 수정':'카드값 입력'}</h3>
+    <div class="tip">카드사별로 그 달에 <b>빠져나갈(결제될) 금액</b>을 기록하세요. 같은 카드사·같은 달을 다시 입력하면 덮어써요.</div>
+    <div class="field"><label>카드사</label>
+      <input class="input" id="c-company" list="card-companies" placeholder="예: 신한카드, 삼성카드" maxlength="20" autocomplete="off" value="${edit?esc(edit.company):''}">
+      <datalist id="card-companies">${dl}</datalist></div>
+    <div class="field"><label>결제 월</label><input class="input" type="month" id="c-ym" value="${edit?edit.ym:cardYM}"></div>
+    <div class="field"><label>금액</label>
+      <input class="input amount num" id="c-amount" inputmode="numeric" placeholder="0" autocomplete="off" value="${edit?Number(edit.amount).toLocaleString('ko-KR'):''}"><span style="position:relative;float:right;margin-top:-36px;margin-right:14px;color:var(--txt-weak);font-weight:700">원</span></div>
+    <button class="btn block" data-action="save-card">${edit?'수정 저장':'저장하기'}</button>
+    ${edit?`<button class="btn block sec" data-action="del-card-edit" data-id="${edit.id}" style="margin-top:8px;color:var(--up)">이 카드값 삭제</button>`:''}
+  `);
+  setTimeout(()=>{ const el=document.getElementById('c-company'); if(el) el.focus(); },60);
+  attachAmountFormat();
+}
+
+// 카드값 섹션 (자산 탭) — 카드사별 정리 + 월별 그래프
+function cardSectionHTML(){
+  const list = cardsOf(cardYM);
+  const total = list.reduce((s,c)=>s+c.amount,0);
+  const months = cardMonths();
+  const graphData = months.map(ym=>({ label: ym.slice(2,4)+'.'+ym.slice(5,7), value: (state.cards||[]).filter(c=>c.ym===ym).reduce((s,c)=>s+c.amount,0) }));
+  const rowsHTML = list.length
+    ? list.map(c=>`<div class="tx" data-action="card-row" data-id="${c.id}">
+        <div class="ic" style="background:var(--up-weak);color:var(--up)">💳</div>
+        <div class="meta"><div class="cat">${esc(c.company)}</div></div>
+        <div class="amt num" style="color:var(--up)">${won(c.amount)}원</div>
+        <button class="del" data-action="del-card" data-id="${c.id}" title="삭제">✕</button>
+      </div>`).join('')
+    : '<div class="empty" style="padding:18px"><div class="em">💳</div><p>이 달에 등록된 카드값이 없어요.<br>＋ 카드값 입력으로 추가해 보세요.</p></div>';
+  return `
+    <div class="card">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px">
+        <div class="sec-title" style="margin:0">카드값 (부채)</div>
+        <button class="btn sm" data-action="open-card">＋ 카드값 입력</button>
+      </div>
+      <div class="month-nav" style="margin:8px 0 6px">
+        <button data-action="card-prev-month" aria-label="이전 달">‹</button>
+        <div class="m num" style="font-size:15px">${ymLabel(cardYM)}</div>
+        <button data-action="card-next-month" aria-label="다음 달">›</button>
+      </div>
+      <div style="text-align:center; margin-bottom:8px">
+        <div class="label" style="font-size:12px; color:var(--txt-weak)">이 달 빠져나갈 카드값</div>
+        <div class="num" style="font-size:24px; font-weight:700; color:var(--up); letter-spacing:-.5px">${won(total)}원</div>
+      </div>
+      ${rowsHTML}
+      <div style="margin-top:16px">
+        <div class="sec-sub" style="margin:0 0 8px">월별 카드값 추이</div>
+        <div class="scroll-x">${ graphData.length ? barsSVG(graphData,{height:140,color:'var(--up)'}) : '<div class="empty" style="padding:18px"><div class="em">📊</div><p>여러 달 입력하면 추이가 그려져요</p></div>' }</div>
+      </div>
+    </div>`;
+}
+
 // 모든 스냅샷 월 목록
 function assetMonths(){
   return [...new Set(state.assets.map(a=>a.ym))].sort();
@@ -861,6 +926,7 @@ function renderAssets(){
       ${totDelta!=null? `<div class="chg" style="display:inline-flex;align-items:center;gap:6px;background:${tBg};color:${tCol};padding:6px 12px;border-radius:999px;font-weight:700;font-size:13px">
         ${totDelta>=0?'▲':'▼'} 전월 대비 ${won(Math.abs(totDelta))}원 ${totPct!=null?'('+fmtPct(totPct)+')':''}</div>`
         : `<div class="muted" style="font-size:12px">전월 데이터가 쌓이면 증감이 표시돼요</div>`}
+      ${ upcomingCardTotal()>0 ? `<div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--line-soft); font-size:13px; color:var(--txt)">순자산 <b class="num" style="color:var(--txt-strong); font-size:16px">${won(latestTotal - upcomingCardTotal())}원</b><div class="muted" style="font-size:12px; margin-top:2px">총자산 − 예정 카드값 ${won(upcomingCardTotal())}원</div></div>` : '' }
       <div class="grid c2" style="margin-top:16px">
         <div class="stat" style="text-align:left"><div class="label">평가손익(누적)</div><div class="big num" style="color:${totalPL>=0?'var(--up)':'var(--down)'};font-size:20px">${fmtSigned(totalPL)}</div><div class="sub">${totalPLpct!=null?fmtPct(totalPLpct)+' · 원금 '+won(sumPrincipal)+'원':'원금 미입력'}</div></div>
         <div class="stat" style="text-align:left"><div class="label">누적 납입원금</div><div class="big num" style="font-size:20px">${won(sumPrincipal)}원</div><div class="sub">${allAccounts().length}개 계좌 합계</div></div>
@@ -904,6 +970,7 @@ function renderAssets(){
       <button class="btn" data-action="open-asset">＋ 자산 스냅샷 입력</button>
     </div>
     ${body}
+    ${cardSectionHTML()}
     <div class="card" id="market-card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
         <div><div class="sec-title" style="margin:0">시장 지표</div><div class="sec-sub" style="margin:2px 0 0">실시간 외부 API</div></div>
@@ -1183,6 +1250,7 @@ function backupForUndo(){
   state._undo = {
     transactions:   JSON.parse(JSON.stringify(state.transactions)),
     assets:         JSON.parse(JSON.stringify(state.assets)),
+    cards:          JSON.parse(JSON.stringify(state.cards || [])),
     customCats:     JSON.parse(JSON.stringify(state.customCats || {income:[],expense:[]})),
     customAccounts: JSON.parse(JSON.stringify(state.customAccounts || [])),
   };
@@ -1301,7 +1369,7 @@ function renderChangePin(){
 /* ---------- 기기 간 옮기기 (백업/복원) ---------- */
 function buildBackup(){
   return { app:'MoneyBoard', v:1, user: currentUser? currentUser.id:null, exportedAt: Date.now(),
-    transactions: state.transactions, assets: state.assets,
+    transactions: state.transactions, assets: state.assets, cards: state.cards || [],
     customCats: state.customCats || {income:[],expense:[]},
     customAccounts: state.customAccounts || [], appName: state.appName };
 }
@@ -1321,6 +1389,9 @@ function mergeBackup(obj){
   (obj.transactions||[]).forEach(t=>{ if(t && t.id && !txIds.has(t.id)){ state.transactions.push(t); txIds.add(t.id); addTx++; } });
   const asIds = new Set(state.assets.map(a=>a.id));
   (obj.assets||[]).forEach(a=>{ if(a && a.id && !asIds.has(a.id)){ state.assets.push(a); asIds.add(a.id); addAs++; } });
+  if(!state.cards) state.cards=[];
+  const cdIds = new Set(state.cards.map(c=>c.id));
+  (obj.cards||[]).forEach(c=>{ if(c && c.id && !cdIds.has(c.id)){ state.cards.push(c); cdIds.add(c.id); } });
   if(!state.customCats) state.customCats = {income:[],expense:[]};
   ['income','expense'].forEach(type=>{
     if(!state.customCats[type]) state.customCats[type]=[];
@@ -1491,6 +1562,7 @@ document.addEventListener('click', e=>{
         state.transactions = state._undo.transactions;
         state.assets = state._undo.assets;
         state.customCats = state._undo.customCats;
+        if(state._undo.cards) state.cards = state._undo.cards;
         if(state._undo.customAccounts) state.customAccounts = state._undo.customAccounts;
         delete state._undo; save(); closeModal(); render();
         toast('직전 상태로 되돌렸어요');
@@ -1500,7 +1572,7 @@ document.addEventListener('click', e=>{
     case 'reset-all': {
       if(confirm('모든 가계부·자산 데이터를 삭제할까요?\n(서비스 이름·비밀번호는 유지되고, 삭제 직후 설정에서 한 번 되돌릴 수 있어요)')){
         backupForUndo();
-        state.transactions = []; state.assets = []; state.customCats = {income:[],expense:[]}; state.customAccounts = [];
+        state.transactions = []; state.assets = []; state.cards = []; state.customCats = {income:[],expense:[]}; state.customAccounts = [];
         save(); closeModal(); render();
         toast('전체 데이터를 초기화했어요');
       }
@@ -1682,6 +1754,43 @@ document.addEventListener('click', e=>{
       toast(n+'개를 삭제했어요');
       break;
     }
+    case 'open-card': openCardModal(); break;
+    case 'card-prev-month': cardYM = addMonth(cardYM,-1); renderAssets(); break;
+    case 'card-next-month': cardYM = addMonth(cardYM, 1); renderAssets(); break;
+    case 'card-row': {
+      const s = (state.cards||[]).find(c=>c.id===el.dataset.id); if(s) openCardModal(s); break;
+    }
+    case 'del-card': {
+      state.cards = (state.cards||[]).filter(c=>c.id!==el.dataset.id);
+      save(); renderAssets(); toast('삭제했어요'); break;
+    }
+    case 'del-card-edit': {
+      state.cards = (state.cards||[]).filter(c=>c.id!==el.dataset.id);
+      save(); closeModal(); renderAssets(); toast('삭제했어요'); break;
+    }
+    case 'save-card': {
+      const company = (document.getElementById('c-company').value||'').trim();
+      const ym = document.getElementById('c-ym').value;
+      const amount = parseNum('c-amount');
+      if(!company){ toast('카드사를 입력해 주세요'); break; }
+      if(!ym){ toast('결제 월을 선택해 주세요'); break; }
+      if(!amount){ toast('금액을 입력해 주세요'); break; }
+      if(!state.cards) state.cards=[];
+      if(modalState.editCardId){
+        // 수정: 다른 항목과 (카드사,월) 충돌 시 제거 후 갱신
+        state.cards = state.cards.filter(c=> c.id===modalState.editCardId || !(c.company===company && c.ym===ym));
+        const t = state.cards.find(c=>c.id===modalState.editCardId);
+        if(t){ t.company=company; t.ym=ym; t.amount=amount; }
+        toast('수정했어요');
+      } else {
+        // 같은 카드사·같은 달 덮어쓰기
+        state.cards = state.cards.filter(c=>!(c.company===company && c.ym===ym));
+        state.cards.push({id:uid()+Math.random().toString(36).slice(2,5), company, ym, amount});
+        toast(company+' '+ymLabel(ym)+' 저장됨');
+      }
+      cardYM = ym; save(); closeModal(); currentTab='assets'; render();
+      break;
+    }
     case 'save-asset': {
       const account = document.getElementById('a-acct').value;
       const ym = document.getElementById('a-ym').value;
@@ -1742,7 +1851,7 @@ document.addEventListener('keydown', e=>{
 /* ---------- 길게 누르기(꾸욱) → 다중 선택 모드 ---------- */
 let lpTimer=null, lpFired=false, lpX=0, lpY=0;
 document.addEventListener('pointerdown', e=>{
-  const row = e.target.closest('.tx[data-id]');
+  const row = e.target.closest('[data-action="tx-row"], [data-action="asset-row"]');
   if(!row) return;
   const isAsset = row.getAttribute('data-action')==='asset-row';
   if(isAsset ? assetSelectMode : selectMode) return;
