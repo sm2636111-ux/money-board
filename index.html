@@ -311,6 +311,14 @@ select.input{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://ww
 .set-row .btn{flex:1;}
 .btn.block.sm{width:100%;}
 .bar-actions{display:flex; gap:8px;}
+/* 사용자 관리 */
+.um-head{display:flex; gap:8px; font-size:11px; color:var(--txt-weak); font-weight:600; margin:6px 0 8px; padding:0 2px;}
+.um-row{display:flex; align-items:center; gap:8px; margin-bottom:8px;}
+.um-name{flex:1; min-width:0;}
+.um-pin{width:84px; flex:none; text-align:center; letter-spacing:3px; font-weight:700;}
+.um-del{width:34px; height:34px; flex:none; border:none; border-radius:10px; background:var(--up-weak); color:var(--up); font-size:22px; font-weight:700; cursor:pointer; line-height:1;}
+.um-del:hover{filter:brightness(.96);}
+.um-master{width:34px; flex:none; text-align:center; font-size:17px;}
 </style>
 </head>
 <body>
@@ -371,18 +379,25 @@ select.input{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://ww
    - 외부 API: 환율(open.er-api.com, CORS 허용) / 코스피(Yahoo, 프록시 경유)
    ========================================================= */
 
-/* ---------- 사용자 정의 (비밀번호로 로그인 구분) ---------- */
-const USERS = [
+/* ---------- 사용자 정의 (비밀번호로 로그인 구분, 사용자1=마스터) ---------- */
+const DEFAULT_USERS = [
   { id:'u1', name:'사용자 1', pin:'1115' },
   { id:'u2', name:'사용자 2', pin:'9790' },
 ];
+const MAX_USERS = 10;
+let USERS = DEFAULT_USERS.map(u=>({...u}));   // 동적 사용자 목록 (저장 가능)
 let currentUser = null;                  // 현재 로그인된 사용자
 const LEGACY_KEY = 'assetmgr.v1';        // 기존 단일 사용자 데이터 (1회 이전용)
-const CORE_KEY = '921207';               // 비밀번호 변경용 핵심키 (마스터 키)
+const CORE_KEY = '921207';               // 비밀번호 변경용 핵심키
+function isMaster(){ return !!currentUser && currentUser.id==='u1'; }
 function storageKey(){ return 'assetmgr.v1.' + (currentUser ? currentUser.id : 'guest'); }
-// 변경된 비밀번호 적용/저장 (기기 전역, 로그인 전부터 필요)
-function applyPins(){ try{ const p=JSON.parse(localStorage.getItem('assetmgr.pins'))||{}; USERS.forEach(u=>{ if(p[u.id]) u.pin=p[u.id]; }); }catch(e){} }
-function savePins(){ const p={}; USERS.forEach(u=>p[u.id]=u.pin); try{ localStorage.setItem('assetmgr.pins', JSON.stringify(p)); }catch(e){} }
+// 사용자 목록 로드/저장 (로그인 전부터 필요 — 기기 전역)
+function loadUsers(){
+  try{ const raw=JSON.parse(localStorage.getItem('assetmgr.users')); if(Array.isArray(raw)&&raw.length){ USERS = raw.map(u=>({id:u.id,name:u.name,pin:String(u.pin)})); return; } }catch(e){}
+  // 최초 1회: 기존 비밀번호 변경 기록(assetmgr.pins) 반영
+  try{ const p=JSON.parse(localStorage.getItem('assetmgr.pins'))||{}; USERS.forEach(u=>{ if(p[u.id]) u.pin=p[u.id]; }); }catch(e){}
+}
+function saveUsers(){ try{ localStorage.setItem('assetmgr.users', JSON.stringify(USERS.map(u=>({id:u.id,name:u.name,pin:u.pin})))); }catch(e){} }
 
 /* ---------- 카테고리 정의 ---------- */
 const PALETTE = ['#3182F6','#F04452','#FFB020','#15B886','#8C6FF0','#FF8A3D','#00A5BF','#E85DA0','#5B7CFA','#34C759','#A0703D','#8FA0AE'];
@@ -1478,6 +1493,7 @@ function openSettingsModal(){
         <button class="btn sec sm" data-action="logout">로그아웃 · 전환</button>
       </div>
       <div class="tip" style="margin-top:8px">로그아웃하면 잠금화면으로 돌아가요. 다른 비밀번호로 로그인하면 그 사용자의 데이터가 보여요. (데이터는 사용자별로 따로 저장돼요)</div>
+      ${ isMaster() ? `<button class="btn sec block sm" data-action="open-users" style="margin-top:10px">👥 사용자 관리 (마스터)</button>` : '' }
     </div>
     <div class="set-sec">
       <div class="set-label">🔑 비밀번호 변경</div>
@@ -1513,6 +1529,39 @@ function openSettingsModal(){
       <div class="tip" style="margin-top:8px">모든 가계부·자산 기록을 삭제해요. 서비스 이름·비밀번호는 그대로 유지되고, 삭제 직후 위 <b>되돌리기</b>로 한 번 복구할 수 있어요.</div>
     </div>
   `);
+}
+
+/* ---------- 사용자 관리 (마스터=사용자1 전용) ---------- */
+function openUsersModal(){
+  if(!isMaster()){ toast('사용자 관리는 사용자 1(마스터)만 가능해요'); return; }
+  modalState = { userDraft: USERS.map(u=>({...u})) };
+  renderUsersModal();
+}
+function readUserDraft(){
+  (modalState.userDraft||[]).forEach((u,i)=>{
+    const nm=document.getElementById('um-name-'+i), pn=document.getElementById('um-pin-'+i);
+    if(nm) u.name = nm.value.trim();
+    if(pn) u.pin = pn.value.replace(/[^\d]/g,'');
+  });
+}
+function renderUsersModal(){
+  const d = modalState.userDraft;
+  const rows = d.map((u,i)=>`
+    <div class="um-row">
+      <input class="input um-name" id="um-name-${i}" value="${esc(u.name||'')}" placeholder="이름" maxlength="12" autocomplete="off">
+      <input class="input um-pin" id="um-pin-${i}" value="${esc(u.pin||'')}" placeholder="0000" inputmode="numeric" maxlength="4" autocomplete="off">
+      ${ u.id==='u1' ? '<span class="um-master" title="마스터">👑</span>' : `<button class="um-del" data-action="users-remove" data-idx="${i}" title="삭제">−</button>` }
+    </div>`).join('');
+  openModal(`
+    <div class="grip" data-action="modal-close"></div>
+    <h3>👥 사용자 관리</h3>
+    <div class="tip">사용자 1은 <b>마스터</b>(삭제 불가)예요. 이름과 <b>4자리 비밀번호</b>를 정하고, 사용자를 추가(＋)·삭제(−)할 수 있어요. 최대 ${MAX_USERS}명, 비밀번호는 서로 달라야 해요.</div>
+    <div class="um-head"><span style="flex:1">이름</span><span style="width:84px;text-align:center">비밀번호</span><span style="width:34px"></span></div>
+    <div id="um-list">${rows}</div>
+    <button class="btn sec block sm" data-action="users-add" ${d.length>=MAX_USERS?'disabled':''} style="margin-top:6px">＋ 사용자 추가 (${d.length}/${MAX_USERS})</button>
+    <button class="btn block" data-action="users-save" style="margin-top:14px">저장</button>
+  `);
+  setTimeout(()=>{ const el=document.getElementById('um-name-0'); if(el) el.focus(); },60);
 }
 
 /* ---------- 비밀번호 변경 (핵심키 필요) ---------- */
@@ -1687,6 +1736,42 @@ document.addEventListener('click', e=>{
     case 'open-export': openExportModal(); break;
     case 'open-import': openImportModal(); break;
     case 'open-change-pin': openChangePinModal(); break;
+    case 'open-users': openUsersModal(); break;
+    case 'users-add': {
+      readUserDraft();
+      if(modalState.userDraft.length>=MAX_USERS){ toast('최대 '+MAX_USERS+'명까지 등록할 수 있어요'); break; }
+      const ids=new Set(modalState.userDraft.map(u=>u.id)); let n=1; while(ids.has('u'+n)) n++;
+      modalState.userDraft.push({id:'u'+n, name:'사용자 '+(modalState.userDraft.length+1), pin:''});
+      renderUsersModal();
+      break;
+    }
+    case 'users-remove': {
+      readUserDraft();
+      const i=parseInt(el.dataset.idx,10); const u=modalState.userDraft[i];
+      if(!u || u.id==='u1') break;
+      if(!confirm(`'${u.name||'이 사용자'}' 사용자를 삭제할까요?\n이 사용자의 데이터도 함께 지워져요.`)) break;
+      modalState.userDraft.splice(i,1);
+      renderUsersModal();
+      break;
+    }
+    case 'users-save': {
+      readUserDraft();
+      const d=modalState.userDraft;
+      let bad=null;
+      d.forEach(u=>{ if(!u.name) u.name='사용자'; if(!bad && !/^\d{4}$/.test(u.pin)) bad=u.name; });
+      if(bad){ toast(`'${bad}'의 비밀번호를 숫자 4자리로 입력해 주세요`); break; }
+      const pins=d.map(u=>u.pin);
+      if(new Set(pins).size!==pins.length){ toast('비밀번호가 서로 겹쳐요. 다르게 설정해 주세요'); break; }
+      // 삭제된 사용자 데이터 정리
+      const newIds=new Set(d.map(u=>u.id));
+      USERS.forEach(u=>{ if(!newIds.has(u.id)){ try{ localStorage.removeItem('assetmgr.v1.'+u.id); }catch(e){} } });
+      USERS = d.map(u=>({id:u.id,name:u.name,pin:u.pin}));
+      saveUsers();
+      if(currentUser){ const me=USERS.find(u=>u.id===currentUser.id); if(me) currentUser=me; }
+      closeModal(); render();
+      toast('사용자 정보를 저장했어요');
+      break;
+    }
     case 'verify-core': {
       const v=((document.getElementById('core-key')||{}).value||'').trim();
       if(v===CORE_KEY){ modalState.coreOK=true; renderChangePin(); toast('핵심키 확인됨'); }
@@ -1702,7 +1787,8 @@ document.addEventListener('click', e=>{
       const other=USERS.find(u=>u.id!==uid);
       if(other && other.pin===p1){ toast('다른 사용자와 같은 비밀번호는 쓸 수 없어요'); break; }
       const target=USERS.find(u=>u.id===uid);
-      target.pin=p1; savePins();
+      target.pin=p1; saveUsers();
+      if(currentUser && currentUser.id===uid) currentUser=target;
       closeModal();
       toast(target.name+' 비밀번호를 변경했어요');
       break;
@@ -2088,7 +2174,7 @@ function startApp(){
   refreshMarket(true);     // 시장 지표 갱신
 }
 applyTheme();              // 잠금화면용 시스템 테마
-applyPins();               // 저장된(변경된) 비밀번호 반영
+loadUsers();               // 저장된 사용자 목록·비밀번호 로드
 unlockInit();              // 세션 로그인 기록 있으면 자동 로그인 후 앱 시작
 </script>
 </body>
